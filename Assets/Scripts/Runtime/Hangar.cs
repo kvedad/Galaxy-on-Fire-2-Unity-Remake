@@ -35,8 +35,8 @@ namespace GoF2Remake.Data
             Stock = stock;
             Station = stock.station;
             SystemIndex = Shop.SystemOf(db, Station);
-            // HangarWindow::initialize -> Status::calcCargoPrices: each list priced with its own Random(station); the
-            // station's price wins in the merged list (Item::mixItems).
+            // HangarWindow::initialize -> Status::calcCargoPrices: each list priced (the station's price wins in the merged
+            // list, Item::mixItems); remake: an item's price no longer depends on the list (Shop.PriceList).
             AddPrices(Session.Equipment.Select(e => e.item).ToList());
             AddPrices(Session.Cargo.Select(e => e.item).ToList());
             AddPrices(stock.items.Select(e => e.item).ToList());
@@ -174,7 +174,9 @@ namespace GoF2Remake.Data
                 Stock.items.Insert(at < 0 ? Stock.items.Count : at, new ItemStack(item, 1));   // the stock stays in index order
             }
             if (!Storage) Shared(item, 1, 0);   // multiplayer: the shared stock
-            if (!Storage) ChangeCredits(PriceOf(item));
+            // Multiplayer: at a faction's station its members sell at their buying cut too (NetFactionsClient.BuyPrice: 10 %
+            // off), else buying there and selling at the list price was a sure profit; others' 5 % tax isn't paid back.
+            if (!Storage) { int p = PriceOf(item); ChangeCredits(Mathf.Min(p, GoF2Remake.Multiplayer.NetFactionsClient.BuyPrice(Station, p))); }
             Session.SeenItems.Add(item);
             if (Session.IsBooze(item)) Session.BoozeTypes.Add(item);   // HangarWindow::selectItem: a committed booze trade
             return Result.Ok;
