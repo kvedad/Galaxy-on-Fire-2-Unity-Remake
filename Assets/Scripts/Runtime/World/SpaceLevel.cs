@@ -693,9 +693,11 @@ namespace GoF2Remake.World
                 root.transform.SetPositionAndRotation(
                     OrbitLayout.ToUnity(UndockPoint),
                     OrbitLayout.RotationToUnity(new Vector3(0f, (Random.value < 0.5f ? 1 : -1) * OrbitLayout.UndockYaw / 65536f * 2f * Mathf.PI, 0f)));
-            // Multiplayer: players launching together sit side by side, 80 m apart by client id; an arena's spawn ring.
+            // Multiplayer: players launching together sit side by side, 80 m apart by client id (one of 8 slots, -240..+320 m
+            // across the undock point: by the raw id a player who had reconnected a few dozen times came out kilometres to the
+            // side of the entrance, the ids only grow); an arena's spawn ring.
             if (NetArenaClient.InMatch) { var spawn = NetArenaClient.SpawnPose(); root.transform.SetPositionAndRotation(spawn.position, spawn.rotation); }
-            else if (NetGame.Active) root.transform.position += root.transform.right * (NetGame.LocalId * 80f);
+            else if (NetGame.Active) root.transform.position += root.transform.right * (((int)(NetGame.LocalId % 8) - 3) * 80f);
             // Multiplayer: answering a squadmate's distress call, next to them (NetDistress).
             if (NetGame.Active && Session.ArrivedByTravel && NetDistress.ArrivalNear(Layout.stationIndex, out var near, out var nearFacing))
                 root.transform.SetPositionAndRotation(near, nearFacing);
