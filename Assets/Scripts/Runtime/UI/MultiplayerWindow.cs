@@ -607,11 +607,11 @@ namespace GoF2Remake.UI
         /// day's upkeep ("/faction garrison ships level station").</summary>
         void GarrisonRow(NetPanel.ClaimRow c, bool officer)
         {
-            var current = (c.garrisonSize, Mathf.Clamp(c.garrisonLevel, 1, NetFactions.MaxGarrisonLevel));
-            var edit = garrisonEdit.TryGetValue(c.station, out var e) ? e : current;
+            (int ships, int level) current = (c.garrisonSize, Mathf.Clamp(c.garrisonLevel, 1, NetFactions.MaxGarrisonLevel));
+            (int ships, int level) edit = garrisonEdit.TryGetValue(c.station, out var e) ? e : current;
             string now = c.garrisonSize > 0
-                ? string.Format(Localization.Extra("mpPanelGarrison", "Garrison: {0} fighters, level {1} ({2:N0} credits a day)"), c.garrisonSize, current.Item2,
-                                NetFactions.GarrisonCost(c.garrisonSize, current.Item2))
+                ? string.Format(Localization.Extra("mpPanelGarrison", "Garrison: {0} fighters, level {1} ({2:N0} credits a day)"), c.garrisonSize, current.level,
+                                NetFactions.GarrisonCost(c.garrisonSize, current.level))
                 : Localization.Extra("mpPanelNoGarrison", "Garrison: none");
             body.Add(Text("    " + now, 14, Dim));
             if (!officer || c.sieged) return;
