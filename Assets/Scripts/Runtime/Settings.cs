@@ -192,8 +192,8 @@ namespace GoF2Remake.Data
         /// and any completed lock replaces the old one); off (default) = the remake's smarter lock (CombatRadar).</summary>
         public static bool OriginalTargetLock { get => GetBool("originalTargetLock", false); set => SetBool("originalTargetLock", value); }
         public static bool PirateEvents { get => GetBool("pirateEvents", true); set => SetBool("pirateEvents", value); }
-        /// <summary>Remake (players' suggestion): the Kaamo Club mechanics sell their upgrade again, the price doubling per
-        /// level (LoungeChat.ModPrice); off = the original's one of each. Levels already fitted stay either way.</summary>
+        /// <summary>Remake (players' suggestion): the Kaamo Club mechanics sell their upgrade again, up to
+        /// Session.MaxModLevel levels per hull, the price doubling per level (LoungeChat.ModPrice); off = the original's one of each. Levels already fitted stay either way.</summary>
         public static bool KaamoStacking { get => GetBool("kaamoStacking", true); set => SetBool("kaamoStacking", value); }
         /// <summary>Remake (players' suggestion): a hull stored in the Kaamo Club keeps the items mounted on it (Hangar).</summary>
         public static bool KaamoKeepsEquipment { get => GetBool("kaamoKeepsEquipment", true); set => SetBool("kaamoKeepsEquipment", value); }

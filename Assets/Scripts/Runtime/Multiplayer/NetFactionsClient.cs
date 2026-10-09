@@ -21,7 +21,7 @@ namespace GoF2Remake.Multiplayer
         static void ResetStatics() { parsedFrom = siegesFrom = null; owners.Clear(); sieges.Clear(); TollStation = -1; }
 
         /// <summary>A siege as the players see it: the seconds left counted from when the line arrived.</summary>
-        public sealed class SiegeInfo { public int station, control; public string attacker, defender; public bool started; public float secondsLeft, receivedAt; }
+        public sealed class SiegeInfo { public int station, control, garrisonAlive, garrisonLevel = 1; public string attacker, defender; public bool started; public float secondsLeft, receivedAt; }
 
         static string siegesFrom;
         static readonly Dictionary<int, SiegeInfo> sieges = new Dictionary<int, SiegeInfo>();
@@ -38,8 +38,11 @@ namespace GoF2Remake.Multiplayer
                 if (p.Length < 6 || !int.TryParse(p[0], out int station)) continue;
                 int.TryParse(p[4], out int left);
                 int.TryParse(p[5], out int control);
+                int garrison = 0, level = 1;
+                if (p.Length >= 8) { int.TryParse(p[6], out garrison); int.TryParse(p[7], out level); }
                 sieges[station] = new SiegeInfo { station = station, attacker = p[1], defender = p[2], started = p[3] == "1",
-                                                  secondsLeft = left, control = control, receivedAt = UnityEngine.Time.unscaledTime };
+                                                  secondsLeft = left, control = control, receivedAt = UnityEngine.Time.unscaledTime,
+                                                  garrisonAlive = garrison, garrisonLevel = level };
             }
         }
 
@@ -56,6 +59,15 @@ namespace GoF2Remake.Multiplayer
             var s = SiegeAt(station);
             if (s == null || !s.started || string.IsNullOrEmpty(tagA) || string.IsNullOrEmpty(tagB)) return false;
             return (tagA == s.attacker && tagB == s.defender) || (tagA == s.defender && tagB == s.attacker);
+        }
+
+        /// <summary>A besieged station's garrison fighter toward a pilot ('tag' their faction): -1 the attackers, +1 the
+        /// holders, 0 anyone else (the system's fighters' usual rules).</summary>
+        public static int GarrisonRelation(int station, string tag)
+        {
+            var s = SiegeAt(station);
+            if (s == null || string.IsNullOrEmpty(tag)) return 0;
+            return tag == s.attacker ? -1 : tag == s.defender ? 1 : 0;
         }
 
         /// <summary>The station this pilot paid the toll at for the current visit (-1 = none; TerritoryView).</summary>

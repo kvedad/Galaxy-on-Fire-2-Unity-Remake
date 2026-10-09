@@ -105,8 +105,10 @@ namespace GoF2Remake.UI
             if (s == null) return null;
             int left = Mathf.Max(0, Mathf.CeilToInt(s.secondsLeft - (Time.unscaledTime - s.receivedAt)));
             string time = $"{left / 60}:{left % 60:00}";
+            string garrison = s.started && s.garrisonAlive > 0
+                ? "  ·  " + string.Format(Localization.Extra("mpSiegeGarrison", "garrison {0} (level {1})"), s.garrisonAlive, s.garrisonLevel) : "";
             return s.started
-                ? string.Format(Localization.Extra("mpSiegeBanner", "SIEGE  [{0}] against [{1}]  ·  {2}% taken  ·  {3} left"), s.attacker, s.defender, s.control, time)
+                ? string.Format(Localization.Extra("mpSiegeBanner", "SIEGE  [{0}] against [{1}]  ·  {2}% taken  ·  {3} left"), s.attacker, s.defender, s.control, time) + garrison
                 : string.Format(Localization.Extra("mpSiegeBannerSoon", "SIEGE  [{0}] against [{1}]  ·  starts in {2}"), s.attacker, s.defender, time);
         }
 

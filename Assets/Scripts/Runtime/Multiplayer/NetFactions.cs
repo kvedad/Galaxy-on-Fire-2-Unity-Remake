@@ -38,6 +38,15 @@
 //     TerritoryView; NetPlayer.TollStation) for this visit. Pilots without a faction are treated as always.
 //   Trade cut: at a held station members buy items MemberDiscountPercent cheaper, the members of other factions pay
 //     TaxPercent more, which goes to the holder's bank (OnPurchase, from the shared stock's trades; NetFactionsClient).
+//   Garrison (players' request: a station whose holders are offline fell to one attacker in 5 minutes): officers set a
+//     claim's garrison, "/faction garrison <ships> <level> [station]" or the Faction tab: 0..MaxGarrison fighters of the
+//     system's race at level 1..MaxGarrisonLevel (hull x(1 + 0.5 (level - 1)), gun x(1 + 0.25 (level - 1)), the dearer
+//     fighters from level 3). Upkeep GarrisonUpkeep x ships x level a day from the bank, the first day when it is set
+//     (not while the station's siege runs); a bank that can't pay disbands it. In a running siege the server counts the
+//     garrison (Siege.garrisonAlive): each living fighter counts GarrisonWeight of a pilot for the defenders; the orbit's
+//     authority flies that many (NetOrbit.UpdateGarrison: hostile to the attackers, friends of the holders, swarming in
+//     front of the station) and reports each death (NetState.GarrisonKillRpc, OnGarrisonKill); a dead fighter comes back
+//     GarrisonRespawnSeconds later. Siege.garrisonAlive / level go out with the sieges (PublishSieges).
 
 using System;
 using System.Collections.Generic;
@@ -58,6 +67,14 @@ namespace GoF2Remake.Multiplayer
         public const int MemberDiscountPercent = 10, TaxPercent = 5;
         const long SiegeDelaySeconds = 600, SiegeSeconds = 900, ProtectionHours = 24;
         const float SiegeRate = 100f / 300f, SiegeTickSeconds = 5f;
+        public const int MaxGarrison = 12, MaxGarrisonLevel = 5, GarrisonUpkeep = 300;
+        public const float GarrisonWeight = 1f / 3f;
+        const long GarrisonRespawnSeconds = 90, DaySeconds = 86400;
+        const float GarrisonKillWindow = 10f;   // at most GarrisonKillsPerWindow reports count in it (a modified game reporting a whole garrison)
+        const int GarrisonKillsPerWindow = 6;
+
+        /// <summary>A garrison's upkeep a day.</summary>
+        public static int GarrisonCost(int ships, int level) => Mathf.Max(0, ships) * Mathf.Clamp(level, 1, MaxGarrisonLevel) * GarrisonUpkeep;
 
         /// <summary>A siege's price from the bank (-siegecost), the toll a pilot of another faction pays at a held station
         /// (-toll; 0 = none).</summary>
@@ -90,10 +107,21 @@ namespace GoF2Remake.Multiplayer
             public int home = -1;
         }
 
-        [Serializable] public class Claim { public int station; public string faction, claimed, lastDock; public long protectedUntil; }
+        [Serializable] public class Claim
+        {
+            public int station; public string faction, claimed, lastDock; public long protectedUntil;
+            public int garrisonSize, garrisonLevel = 1; public long garrisonPaidUntil;   // the garrison (0 = none) and its upkeep
+        }
 
         /// <summary>A siege: times in Unix seconds, control 0..100 (100 = the attackers take the station).</summary>
-        [Serializable] public class Siege { public int station; public string attacker, defender; public long startsAt, endsAt; public float control; public bool started; }
+        [Serializable] public class Siege
+        {
+            public int station; public string attacker, defender; public long startsAt, endsAt; public float control; public bool started;
+            public int garrisonAlive, garrisonLevel = 1;                  // the defenders' fighters alive now (server-side count)
+            public List<long> garrisonBack = new List<long>();            // when each dead one comes back (Unix seconds)
+            [NonSerialized] public float killWindowStart = -100f;
+            [NonSerialized] public int killsInWindow;
+        }
 
         [Serializable]
         class FactionList
@@ -146,6 +174,8 @@ namespace GoF2Remake.Multiplayer
             if (list.claims == null) list.claims = new List<Claim>();
             if (list.sieges == null) list.sieges = new List<Siege>();
             foreach (var c in list.factions) { c.officers ??= new List<string>(); c.members ??= new List<string>(); }
+            foreach (var c in list.claims) c.garrisonLevel = Mathf.Clamp(c.garrisonLevel, 1, MaxGarrisonLevel);
+            foreach (var x in list.sieges) { x.garrisonBack ??= new List<long>(); x.garrisonLevel = Mathf.Clamp(x.garrisonLevel, 1, MaxGarrisonLevel); }
             charges.Clear();
             PublishClaims();
         }
@@ -224,10 +254,11 @@ namespace GoF2Remake.Multiplayer
                 case "claims": return ClaimsText(arg.Length > 0 ? ByTag(arg) : Of(me));
                 case "siege": return DeclareSiege(client, me);
                 case "sieges": return SiegesText();
+                case "garrison": return SetGarrison(client, me, arg);
                 default:
                     return Localization.Extra("mpFactionHelp", "Faction commands: /faction create TAG Name, invite <pilot>, join TAG, leave, kick <pilot>, " +
                                                             "promote / demote <pilot>, leader <pilot>, disband, info [TAG], list; deposit N, withdraw N; " +
-                                                            "claim, unclaim, home, claims [TAG] (docked at the station); siege (in another faction's orbit), sieges; " +
+                                                            "claim, unclaim, home, claims [TAG] (docked at the station); garrison <ships> <level> [station]; siege (in another faction's orbit), sieges; " +
                                                             "/f <text> talks to your faction.");
             }
         }
@@ -628,6 +659,7 @@ namespace GoF2Remake.Multiplayer
                 var faction = held != null ? OfClient(p.OwnerClientId) : null;
                 if (faction != null && faction.id == held.faction) { held.lastDock = now; changed = true; }
             }
+            if (TickUpkeep()) changed = true;
             foreach (var c in new List<Claim>(list.claims))
             {
                 if (DaysSince(c.lastDock) < LapseDays) continue;
@@ -723,12 +755,18 @@ namespace GoF2Remake.Multiplayer
                 if (!s.started)
                 {
                     s.started = true;
+                    s.garrisonAlive = held.garrisonSize;
+                    s.garrisonLevel = Mathf.Clamp(held.garrisonLevel, 1, MaxGarrisonLevel);
+                    s.garrisonBack.Clear();
                     changed = true;
                     NetState.Instance?.Announce(string.Format(Localization.Extra("mpSiegeStarts", "The siege of {0} has begun: [{1}] and [{2}] may fire at each other there."),
                         StationName(s.station), attacker.tag, list.factions.Find(c => c.id == s.defender)?.tag));
                     NetNews.Post(NetNews.Kind.War, $"Fighting erupts at {NetNews.Place(s.station)}: [{NetNews.Safe(attacker.tag)}] against [{NetNews.Safe(list.factions.Find(c => c.id == s.defender)?.tag)}]", s.station);
                 }
-                int att = 0, def = 0;
+                // The garrison's dead come back after their cooldown.
+                for (int i = s.garrisonBack.Count - 1; i >= 0; i--)
+                    if (now >= s.garrisonBack[i]) { s.garrisonBack.RemoveAt(i); s.garrisonAlive++; changed = true; }
+                float att = 0f, def = s.garrisonAlive * GarrisonWeight;
                 foreach (var p in NetPlayer.All)
                 {
                     if (p == null || !p.IsSpawned || !p.InSpace || p.Station != s.station || p.Hull <= 0f) continue;
@@ -737,7 +775,7 @@ namespace GoF2Remake.Multiplayer
                     if (faction.id == s.attacker) att++;
                     else if (faction.id == s.defender) def++;
                 }
-                if (att != def)
+                if (Mathf.Abs(att - def) > 0.01f)
                 {
                     s.control = Mathf.Clamp(s.control + (att - def) * SiegeRate * dt, 0f, 100f);
                     changed = true;
@@ -759,6 +797,9 @@ namespace GoF2Remake.Multiplayer
             {
                 held.faction = attacker.id;
                 held.lastDock = DateTime.UtcNow.ToString("o");
+                held.garrisonSize = 0;   // the beaten garrison is gone; the new holder sets its own
+                held.garrisonLevel = 1;
+                held.garrisonPaidUntil = 0;
                 if (defender != null && defender.home == s.station) defender.home = list.claims.Find(c => c.faction == defender.id)?.station ?? -1;
                 if (attacker.home < 0 || ClaimAt(attacker.home)?.faction != attacker.id) attacker.home = s.station;
                 PublishClaims();
@@ -777,7 +818,7 @@ namespace GoF2Remake.Multiplayer
         }
 
         /// <summary>The sieges to the players (NetState.Sieges): "station|attacker TAG|defender TAG|started (0/1)|seconds
-        /// left (to the start, or to the end)|control %" per line.</summary>
+        /// left (to the start, or to the end)|control %|garrison alive|garrison level" per line.</summary>
         static void PublishSieges()
         {
             if (list == null || NetState.Instance == null) return;
@@ -790,9 +831,91 @@ namespace GoF2Remake.Multiplayer
                 if (a == null || d == null) continue;
                 long left = s.started ? s.endsAt - now : s.startsAt - now;
                 sb.Append(s.station).Append('|').Append(a.tag).Append('|').Append(d.tag).Append('|').Append(s.started ? 1 : 0)
-                  .Append('|').Append(Math.Max(0, left)).Append('|').Append(Mathf.RoundToInt(s.control)).Append('\n');
+                  .Append('|').Append(Math.Max(0, left)).Append('|').Append(Mathf.RoundToInt(s.control))
+                  .Append('|').Append(s.started ? s.garrisonAlive : 0).Append('|').Append(s.garrisonLevel).Append('\n');
             }
             NetState.Instance.SetSieges(sb.ToString());
+        }
+
+        // ---- the garrison ----------------------------------------------------------------------------------
+
+        /// <summary>"/faction garrison [ships level] [station]": the claim's garrison (officers), or what it is now. The station is
+        /// the one docked at unless given (any of the faction's claims, by number). Setting it pays the new upkeep's first day.</summary>
+        static string SetGarrison(ulong client, string me, string arg)
+        {
+            var faction = Of(me);
+            if (faction == null) return Localization.Extra("mpFactionNone", "You aren't in a faction.");
+            var words = arg.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int station = DockedAt(client);
+            if (words.Length >= 3 && int.TryParse(words[2], out int given)) station = given;
+            var held = ClaimAt(station);
+            if (held == null || held.faction != faction.id) return Localization.Extra("mpGarrisonWhere", "Dock at one of your faction's stations, or name one: /faction garrison <ships> <level> <station>.");
+            if (words.Length == 0)
+                return string.Format(Localization.Extra("mpGarrisonInfo", "{0}: {1} fighters at level {2}, {3:N0} credits a day."),
+                                     StationName(station), held.garrisonSize, held.garrisonLevel, GarrisonCost(held.garrisonSize, held.garrisonLevel));
+            if (!IsOfficer(faction, me)) return Localization.Extra("mpFactionNotOfficer", "Only a faction's leader and officers can do that.");
+            if (words.Length < 2 || !int.TryParse(words[0], out int ships) || !int.TryParse(words[1], out int level)
+                || ships < 0 || ships > MaxGarrison || level < 1 || level > MaxGarrisonLevel)
+                return string.Format(Localization.Extra("mpGarrisonUsage", "/faction garrison <ships 0-{0}> <level 1-{1}> [station]"), MaxGarrison, MaxGarrisonLevel);
+            var siege = SiegeAt(station);
+            if (siege != null && siege.started) return Localization.Extra("mpGarrisonSiege", "The garrison can't change while the siege runs.");
+            int cost = GarrisonCost(ships, level);
+            long now = UnixNow;
+            if (ships > 0 && (ships > held.garrisonSize || level > held.garrisonLevel || now >= held.garrisonPaidUntil))
+            {
+                if (faction.bank < cost)
+                    return string.Format(Localization.Extra("mpGarrisonCost", "That garrison costs {0:N0} credits a day, paid now from the bank (it has {1:N0})."), cost, faction.bank);
+                faction.bank -= cost;
+                held.garrisonPaidUntil = now + DaySeconds;
+            }
+            held.garrisonSize = ships;
+            held.garrisonLevel = level;
+            Save();
+            TellFaction(faction, ships == 0
+                ? string.Format(Localization.Extra("mpGarrisonNone", "{0} has no garrison now."), StationName(station))
+                : string.Format(Localization.Extra("mpGarrisonSet", "{0}'s garrison: {1} fighters at level {2}, {3:N0} credits a day."), StationName(station), ships, level, cost));
+            return "";
+        }
+
+        /// <summary>Claim tick: each garrison's day of upkeep from the bank when its paid day is over; disbanded without it.</summary>
+        static bool TickUpkeep()
+        {
+            bool changed = false;
+            long now = UnixNow;
+            foreach (var c in list.claims)
+            {
+                if (c.garrisonSize <= 0 || now < c.garrisonPaidUntil) continue;
+                var faction = list.factions.Find(x => x.id == c.faction);
+                if (faction == null) continue;
+                int cost = GarrisonCost(c.garrisonSize, c.garrisonLevel);
+                changed = true;
+                if (faction.bank >= cost)
+                {
+                    faction.bank -= cost;
+                    c.garrisonPaidUntil = Math.Max(c.garrisonPaidUntil, now - DaySeconds) + DaySeconds;
+                    continue;
+                }
+                c.garrisonSize = 0;
+                TellFaction(faction, string.Format(Localization.Extra("mpGarrisonUnpaid", "The bank couldn't pay {0}'s garrison ({1:N0} credits a day): it left."), StationName(c.station), cost));
+            }
+            return changed;
+        }
+
+        /// <summary>NetState.GarrisonKillRpc: the orbit's authority saw one of 'station''s garrison die. Checked: the siege runs,
+        /// a fighter is alive, the sender runs that orbit and is there; at most GarrisonKillsPerWindow in GarrisonKillWindow.</summary>
+        public static void OnGarrisonKill(ulong client, int station)
+        {
+            var s = SiegeAt(station);
+            if (s == null || !s.started || s.garrisonAlive <= 0) return;
+            var from = NetSquad.Find(client);
+            if (from == null || !from.OrbitAuthority || !NetGuard.InOrbit(client, station)) return;
+            float t = Time.realtimeSinceStartup;
+            if (t - s.killWindowStart > GarrisonKillWindow) { s.killWindowStart = t; s.killsInWindow = 0; }
+            if (++s.killsInWindow > GarrisonKillsPerWindow) return;
+            s.garrisonAlive--;
+            s.garrisonBack.Add(UnixNow + GarrisonRespawnSeconds);
+            Save();
+            PublishSieges();
         }
 
         // ---- the station's toll and the trade tax (phase 3) ---------------------------------------------
@@ -868,7 +991,8 @@ namespace GoF2Remake.Multiplayer
             foreach (var c in list.claims)
                 if (c.faction == faction.id)
                     s.claims.Add(new NetPanel.ClaimRow { station = c.station, name = StationName(c.station), home = c.station == s.home,
-                                                         daysLeft = (float)Math.Max(0, LapseDays - DaysSince(c.lastDock)), sieged = SiegeAt(c.station) != null });
+                                                         daysLeft = (float)Math.Max(0, LapseDays - DaysSince(c.lastDock)), sieged = SiegeAt(c.station) != null,
+                                                         garrisonSize = c.garrisonSize, garrisonLevel = Mathf.Clamp(c.garrisonLevel, 1, MaxGarrisonLevel) });
         }
 
         // ---- the server console -----------------------------------------------------------------------------

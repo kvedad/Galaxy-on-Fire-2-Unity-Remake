@@ -287,7 +287,7 @@ namespace GoF2Remake.Data
             int old = Session.ShipIndex;
             var oldMods = new List<int>(Session.ShipMods ?? new List<int>());
             if (!Cheats.FreeShopping) ChangeCredits(ShipPrice(old) - ShipPrice(ship));
-            SwitchTo(ship, Stock.TakeMods(ship));
+            SwitchTo(ship, Stock.TakeMods(ship), dismount: true);
             int row = Stock.ships.IndexOf(ship);
             if (row >= 0) Stock.ships[row] = old; else Stock.ships.Add(old);
             Stock.PutMods(old, oldMods);
@@ -328,7 +328,7 @@ namespace GoF2Remake.Data
                     Stock.PutMods(old, oldMods);
                     how = string.Format(Localization.Extra("bpShipTradedIn", "Your {0} was traded in for {1}."), oldName, GoF2Remake.UI.ItemInfo.Credits(price));
                 }
-                SwitchTo(ship, rebuilt ? oldMods : null);
+                SwitchTo(ship, rebuilt ? oldMods : null, dismount: !rebuilt);
                 if (text.Length > 0) text.Append("\n\n");
                 text.Append(string.Format(Localization.Extra("bpShipReady", "Your new {0} is ready in the hangar."), GameNames.Ship(ship))).Append(' ').Append(how);
             }
@@ -349,17 +349,21 @@ namespace GoF2Remake.Data
 
         /// <summary>The new hull becomes the flown ship: every mounted item moves to the first free slot of its type (in
         /// slot order, secondaries with their ammo), the rest to the hold; the cargo stays with the player. 'mount' = the
-        /// items to put on it instead of the ones mounted now (a stored hull's own, KaamoKeepsEquipment).</summary>
-        void SwitchTo(int ship, List<int> mods, List<ItemStack> mount = null)
+        /// items to put on it instead of the ones mounted now (a stored hull's own, KaamoKeepsEquipment). Remake (players'
+        /// report): 'dismount' = a bought hull (dealer, lounge seller, Kaamo "Keep", a blueprint's ship) starts bare: the
+        /// saleable items go to the hold (secondaries with their ammo) for the player to mount again or sell; the story's
+        /// unsaleable items stay mounted (they can't be demounted, 323). The original moves them onto the new hull.</summary>
+        void SwitchTo(int ship, List<int> mods, List<ItemStack> mount = null, bool dismount = false)
         {
             var mounted = mount ?? Session.Equipment;
             Session.ShipIndex = ship;
             Session.ShipMods = mods != null ? new List<int>(mods) : new List<int>();
             Session.Equipment = new List<ItemStack>();
+            Session.SelectedSecondary = -1;
             foreach (var e in mounted)
             {
                 int type = TypeOf(e.item);
-                if (MountedOfType(type).Count < SlotCount(type)) Session.Equipment.Add(e);
+                if ((!dismount || !IsSaleable(e.item)) && MountedOfType(type).Count < SlotCount(type)) Session.Equipment.Add(e);
                 else AddToCargo(e.item, Mathf.Max(1, e.amount));
             }
         }
@@ -382,7 +386,7 @@ namespace GoF2Remake.Data
         {
             if (CanBuyShipFor(ship, price, out _) != Result.Ok) return false;
             if (!Cheats.FreeShopping) ChangeCredits(ShipPrice(Session.ShipIndex) - price);
-            SwitchTo(ship, null);
+            SwitchTo(ship, null, dismount: true);
             return true;
         }
 
@@ -404,7 +408,7 @@ namespace GoF2Remake.Data
             var oldMods = Session.ShipMods;
             if (!Cheats.FreeShopping) ChangeCredits(-price);
             var kept = EquipmentToStore();
-            SwitchTo(ship, null);
+            SwitchTo(ship, null, dismount: true);
             KaamoClub.Store(old, 0, oldMods, kept);
             return true;
         }
@@ -428,7 +432,7 @@ namespace GoF2Remake.Data
             var oldMods = Session.ShipMods;
             if (!Cheats.FreeShopping) ChangeCredits(-ShipPrice(ship));
             var kept = EquipmentToStore();
-            SwitchTo(ship, Stock.TakeMods(ship));   // the bought row's mods (OnTouchEnd: getMods of the row, both branches)
+            SwitchTo(ship, Stock.TakeMods(ship), dismount: true);   // the bought row's mods (OnTouchEnd: getMods of the row, both branches)
             Stock.ships.Remove(ship);   // the bought row is gone
             GoF2Remake.Multiplayer.NetStock.ShipChanged(Station, ship, -1);
             // A bare hull (makeShip(old) + its mods; Ship::clone resets the race to 0), or with its items (KaamoKeepsEquipment).

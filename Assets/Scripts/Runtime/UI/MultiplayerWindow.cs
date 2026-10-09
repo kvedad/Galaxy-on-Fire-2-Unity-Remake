@@ -447,8 +447,11 @@ namespace GoF2Remake.UI
 
             Section(string.Format(Localization.Extra("mpPanelTerritory", "Territory ({0} / {1})"), s.claims.Count, s.maxClaims));
             foreach (var c in s.claims)
+            {
                 body.Add(Line($"{c.name}{(c.home ? "  ⌂ " + Localization.Extra("mpPanelHome", "home") : "")}{(c.sieged ? "  ⚔ " + Localization.Extra("mpPanelSieged", "under siege") : "")}  ·  " +
                               string.Format(Localization.Extra("mpPanelLapses", "lapses in {0:0.#} days without a member docking"), c.daysLeft), c.sieged ? Bad : Color.white));
+                GarrisonRow(c, officer);
+            }
             if (s.dockedStation >= 0)
             {
                 string here = StationName(s.dockedStation);
@@ -479,6 +482,40 @@ namespace GoF2Remake.UI
                 end.Add(Btn(confirmLeave ? Localization.Extra("mpPanelConfirmDisband", "Really disband? The bank is lost") : Localization.Extra("mpPanelDisband", "Disband"),
                             () => { if (confirmLeave) Send("/faction disband"); else { confirmLeave = true; Rebuild(); } }, "squad-button--leave"));
             body.Add(end);
+        }
+
+        // The garrison being edited per claim (ships, level), until it is sent or the claim is gone.
+        readonly Dictionary<int, (int ships, int level)> garrisonEdit = new Dictionary<int, (int, int)>();
+
+        /// <summary>A claim's garrison (NetFactions): what it is, and for officers steppers for ships / level and Set with the
+        /// day's upkeep ("/faction garrison ships level station").</summary>
+        void GarrisonRow(NetPanel.ClaimRow c, bool officer)
+        {
+            var current = (c.garrisonSize, Mathf.Clamp(c.garrisonLevel, 1, NetFactions.MaxGarrisonLevel));
+            var edit = garrisonEdit.TryGetValue(c.station, out var e) ? e : current;
+            string now = c.garrisonSize > 0
+                ? string.Format(Localization.Extra("mpPanelGarrison", "Garrison: {0} fighters, level {1} ({2:N0} credits a day)"), c.garrisonSize, current.Item2,
+                                NetFactions.GarrisonCost(c.garrisonSize, current.Item2))
+                : Localization.Extra("mpPanelNoGarrison", "Garrison: none");
+            body.Add(Text("    " + now, 14, Dim));
+            if (!officer || c.sieged) return;
+            var row = Row();
+            void Set((int, int) v) { garrisonEdit[c.station] = v; Rebuild(); }
+            row.Add(Text("    " + Localization.Extra("mpPanelGarrisonShips", "Fighters"), 14, Color.white));
+            row.Add(Btn("−", () => Set((Mathf.Max(0, edit.ships - 1), edit.level)), null));
+            row.Add(Text(edit.ships.ToString(), 16, Accent));
+            row.Add(Btn("+", () => Set((Mathf.Min(NetFactions.MaxGarrison, edit.ships + 1), edit.level)), null));
+            row.Add(Text(Localization.Extra("mpPanelGarrisonLevel", "Level"), 14, Color.white));
+            row.Add(Btn("−", () => Set((edit.ships, Mathf.Max(1, edit.level - 1))), null));
+            row.Add(Text(edit.level.ToString(), 16, Accent));
+            row.Add(Btn("+", () => Set((edit.ships, Mathf.Min(NetFactions.MaxGarrisonLevel, edit.level + 1))), null));
+            if (edit != current)
+                row.Add(Btn(string.Format(Localization.Extra("mpPanelGarrisonSet", "Set ({0:N0} / day)"), NetFactions.GarrisonCost(edit.ships, edit.level)), () =>
+                {
+                    garrisonEdit.Remove(c.station);
+                    Send($"/faction garrison {edit.ships} {edit.level} {c.station}");
+                }, "squad-button--accept"));
+            body.Add(row);
         }
 
         void FactionList(NetPanel.State s)

@@ -135,7 +135,7 @@ namespace GoF2Remake.Data
             }
             if (a.offer == AgentOffer.SellMod && !ModForSale(a.sellMod))
             {
-                Text = T(858);   // the mod is already on this hull (and stacking is off)
+                Text = T(858);   // the mod is at its cap on this hull
                 closing = true;
                 SetChoices();
                 return;
@@ -156,7 +156,7 @@ namespace GoF2Remake.Data
                     case AgentOffer.SmallTalk: return false;
                     case AgentOffer.Diplomat: return Standing.IsEnemy(a.race);
                     case AgentOffer.Mission: case AgentOffer.Purchase: return a.HasMission;
-                    case AgentOffer.SellMod: return ModForSale(a.sellMod);   // installed on this hull: 858 (unless upgrades stack)
+                    case AgentOffer.SellMod: return ModForSale(a.sellMod);   // at its cap on this hull: 858
                     case AgentOffer.EventMission: return EventMissions.OfferOf(a) != null;
                     default: return true;
                 }
@@ -350,8 +350,9 @@ namespace GoF2Remake.Data
             return price >= int.MaxValue ? int.MaxValue : (int)price;
         }
 
-        /// <summary>The mechanic still has something to fit: the mod isn't on this hull, or upgrades stack.</summary>
-        static bool ModForSale(int mod) => !Session.HasMod(mod) || Settings.KaamoStacking;
+        /// <summary>The mechanic still has something to fit: the mod is below its level cap on this hull (one, or
+        /// Session.MaxModLevel with stacking).</summary>
+        static bool ModForSale(int mod) => Session.ModLevel(mod) < Session.ModLevelCap;
 
         /// <summary>786 + type (#P, #Q, #S, #N; Recovery / Salvage + 802) and the reward line with #C = reward + the current
         /// bonus (+ 767 with the bonus percentage). Challenge: 798 only.</summary>

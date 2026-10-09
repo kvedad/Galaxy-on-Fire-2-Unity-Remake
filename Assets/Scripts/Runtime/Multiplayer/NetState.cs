@@ -613,6 +613,13 @@ namespace GoF2Remake.Multiplayer
             if (NetRateLimit.Allow(rpc.Receive.SenderClientId, NetRateLimit.Kind.Request)) NetFactions.OnTollPaid(rpc.Receive.SenderClientId, station);
         }
 
+        /// <summary>An orbit's authority: one of the besieged station's garrison fighters died there (NetOrbit.UpdateGarrison).</summary>
+        [Rpc(SendTo.Server)]
+        public void GarrisonKillRpc(int station, RpcParams rpc = default)
+        {
+            if (NetRateLimit.Allow(rpc.Receive.SenderClientId, NetRateLimit.Kind.Kill)) NetFactions.OnGarrisonKill(rpc.Receive.SenderClientId, station);
+        }
+
         /// <summary>Server: a notice for everyone (a claim).</summary>
         internal void Announce(string text)
         {

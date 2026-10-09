@@ -1114,7 +1114,8 @@ namespace GoF2Remake.UI
                     string tradeIn = Localization.Get(304) + "\n\n" + string.Format(difference >= 0
                             ? Localization.Extra("shopTradeInNote", "Your {0} is traded in for {1}, so you pay {2}.")
                             : Localization.Extra("shopTradeInRefund", "Your {0} is traded in for {1}, so you get {2} back."),
-                        ItemInfo.ShipName(Session.ShipIndex), ItemInfo.Credits(oldPrice), ItemInfo.Credits(Mathf.Abs(difference)));
+                        ItemInfo.ShipName(Session.ShipIndex), ItemInfo.Credits(oldPrice), ItemInfo.Credits(Mathf.Abs(difference)))
+                        + "\n\n" + Localization.Extra("shopGearToHold", "Your equipment goes into the cargo hold.");
                     if (!KaamoClub.Owned) { menu.ShowDialog(tradeIn, TradeIn); break; }
                     // 304, then 327 "sell your old ship or keep it and have it brought to your station?" (330 / 331).
                     menu.ShowDialog(Localization.Get(304), () => menu.ShowChoice(Localization.Get(327), Localization.Get(330), Localization.Get(331), TradeIn, () =>
