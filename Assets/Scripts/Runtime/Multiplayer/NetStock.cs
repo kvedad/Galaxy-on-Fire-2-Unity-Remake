@@ -15,6 +15,10 @@
 // docked there, one unit of an item that exists, a dealer row only as reserved: the reserved one back or the trader's old
 // hull), sends the list once per frame however many units changed, and caps a row (MaxRowAmount) and the dealer list
 // (MaxShips), so no client grows the list everyone docked there receives.
+// Rare goods (players' report: Buskat at Sao Perula was back after one other system): commodities worth RarePrice or more
+// (Buskat, Vossk Organs, Implants, the add-ons' rare goods) don't come back with the 15-minute list. Each list's roll sets
+// how many of each the station should have (Entry.rareTarget: the roll's amount, 0 when the roll has none), what is left
+// is kept, and every RareStepSeconds a sold-out or short row gets a third of its target back: empty to full in 30 minutes.
 
 using System;
 using System.Collections.Generic;
@@ -29,12 +33,18 @@ namespace GoF2Remake.Multiplayer
     {
         /// <summary>How long a station's stock lasts before the host makes it again.</summary>
         public const float ResetSeconds = 15f * 60f;
+        /// <summary>Rare goods: the price that makes a commodity one, and how often their rows restock (a third each time).</summary>
+        public const int RarePrice = 5000;
+        public const float RareStepSeconds = 10f * 60f;
+        const int RareSteps = 3;
 
         class Entry
         {
             public List<ItemStack> items;
             public List<int> ships;
             public float made;
+            public readonly Dictionary<int, int> rareTarget = new Dictionary<int, int>();   // item -> the units it restocks to
+            public float rareNext;
         }
 
         static readonly Dictionary<int, Entry> stocks = new Dictionary<int, Entry>();   // the host's
@@ -175,10 +185,60 @@ namespace GoF2Remake.Multiplayer
         {
             if (stocks.TryGetValue(station, out var e)) return e;
             if (db == null) db = Database.Load();
-            e = new Entry { items = Shop.GenerateItems(db, station), ships = Shop.GenerateShips(db, station) ?? new List<int>(), made = Time.unscaledTime };
-            HostExtras(station, e.items);
+            e = Make(station, null);
             stocks[station] = e;
             return e;
+        }
+
+        /// <summary>A new list for 'station'. With the old one ('old'), its rare goods stay as they are (what is left) and
+        /// restock gradually toward the new roll's amounts (UpdateRare) instead of coming back whole.</summary>
+        static Entry Make(int station, Entry old)
+        {
+            var e = new Entry { items = Shop.GenerateItems(db, station), ships = Shop.GenerateShips(db, station) ?? new List<int>(), made = Time.unscaledTime,
+                                rareNext = Time.unscaledTime + RareStepSeconds };
+            HostExtras(station, e.items);
+            foreach (var r in e.items) if (IsRare(r.item)) e.rareTarget[r.item] = r.amount;
+            if (old == null) return e;   // a first list: full
+            e.items.RemoveAll(r => IsRare(r.item));
+            foreach (var r in old.items)
+            {
+                if (!IsRare(r.item) || r.amount <= 0) continue;
+                int at = e.items.FindIndex(x => x.item > r.item);
+                e.items.Insert(at < 0 ? e.items.Count : at, new ItemStack(r.item, r.amount));
+            }
+            e.rareNext = old.rareNext;
+            return e;
+        }
+
+        static bool IsRare(int item)
+        {
+            var it = db != null ? db.Item(item) : null;
+            return it != null && it.TypeId == 4 && it.maxPrice >= RarePrice;
+        }
+
+        /// <summary>Every RareStepSeconds: each rare row short of its target gets a third of the target back (at least 1).
+        /// True = the list changed.</summary>
+        static bool UpdateRare(Entry e)
+        {
+            if (Time.unscaledTime < e.rareNext) return false;
+            e.rareNext = Time.unscaledTime + RareStepSeconds;
+            bool changed = false;
+            foreach (var kv in e.rareTarget)
+            {
+                if (kv.Value <= 0) continue;
+                var row = e.items.Find(r => r.item == kv.Key);
+                int have = row != null ? row.amount : 0;
+                if (have >= kv.Value) continue;
+                int add = Math.Min(kv.Value - have, Math.Max(1, (kv.Value + RareSteps - 1) / RareSteps));
+                if (row != null) row.amount += add;
+                else
+                {
+                    int at = e.items.FindIndex(r => r.item > kv.Key);
+                    e.items.Insert(at < 0 ? e.items.Count : at, new ItemStack(kv.Key, add));
+                }
+                changed = true;
+            }
+            return changed;
         }
 
         /// <summary>Story.OnDocked's stock extras that aren't about one player, in the shared list (a player's own copy would be
@@ -251,20 +311,25 @@ namespace GoF2Remake.Multiplayer
         /// far fewer; trades beyond them don't grow the list sent to everyone docked there).</summary>
         const int MaxRowAmount = 100000, MaxShips = 32;
 
-        /// <summary>NetState's sweep: every stock older than ResetSeconds is made again and sent to the players docked there.</summary>
+        /// <summary>NetState's sweep: every stock older than ResetSeconds is made again (its rare goods kept, Make), the rare
+        /// rows restock a step (UpdateRare); the changed lists go to the players docked there.</summary>
         internal static void HostTick(NetState state)
         {
             if (stocks.Count == 0) return;
-            List<int> expired = null;
+            List<int> expired = null, restocked = null;
             foreach (var kv in stocks)
-                if (Time.unscaledTime - kv.Value.made >= ResetSeconds) (expired ??= new List<int>()).Add(kv.Key);
-            if (expired == null) return;
-            foreach (int station in expired)
             {
-                stocks.Remove(station);
-                Get(station);
-                state.BroadcastStock(station);
+                if (Time.unscaledTime - kv.Value.made >= ResetSeconds) (expired ??= new List<int>()).Add(kv.Key);
+                else if (UpdateRare(kv.Value)) (restocked ??= new List<int>()).Add(kv.Key);
             }
+            if (expired != null)
+                foreach (int station in expired)
+                {
+                    stocks[station] = Make(station, stocks[station]);   // the rare goods carried over (what is left)
+                    state.BroadcastStock(station);
+                }
+            if (restocked != null)
+                foreach (int station in restocked) state.BroadcastStock(station);
         }
 
         // ---- the wire format: "item:amount,...|ship,..." --------------------------------------------------------

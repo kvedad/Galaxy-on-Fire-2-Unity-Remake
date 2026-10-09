@@ -1447,7 +1447,7 @@ Single player is untouched: every multiplayer path runs only while `NetGame.Acti
   the amount.
 - **Shared shop stock** (`NetStock`): every station's items and dealer ships are one list for all players, kept by the
   host: made with the single-player rules (`Shop.GenerateItems` / `GenerateShips`) the first time anyone docks there and
-  made again every 15 minutes (`NetStock.ResetSeconds`; no 3-station re-roll or re-docking nibble in sessions); a docking
+  made again every 15 minutes (`NetStock.ResetSeconds`; no 3-station re-roll or re-docking nibble in sessions); rare goods (commodities with a max price of 5000+: Buskat, Vossk Organs, Implants...; a report: Buskat back at Sao Perula after one system) don't come back with it: each roll sets their target amount (0 if the roll has none), what is left is kept, and every 10 minutes a short row gets a third of its target back, empty to full in 30 minutes (`NetStock.Make` / `UpdateRare`); a docking
   player's own list is replaced by it (items and ships in place, the bar's agents stay theirs); a trade (a unit bought /
   sold, several at once from Buy all / Sell all, a dealer row swapped, `Hangar`) goes to the host, which sends the list to everyone docked there (the open hangar
   window rebuilds, `HangarWindow.StockChanged`; during the blueprint view it waits, and an item new to the window gets its
