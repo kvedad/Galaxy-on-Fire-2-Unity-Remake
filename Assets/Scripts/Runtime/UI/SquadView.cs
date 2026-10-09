@@ -155,9 +155,19 @@ namespace GoF2Remake.UI
             return b;
         }
 
+        float nextScaleCheck;
+
         void Update()
         {
             if (box == null) return;
+            // A small high-density screen (UiScale): the large variant of the squad window and the invitation.
+            if (Time.unscaledTime >= nextScaleCheck && box.panel != null)
+            {
+                nextScaleCheck = Time.unscaledTime + 1f;
+                bool large = UiScale.Large(box);
+                box.EnableInClassList("squad--large", large);
+                invitePopup.EnableInClassList("squad--large", large);
+            }
             bool session = NetGame.Active;
             box.style.display = session ? DisplayStyle.Flex : DisplayStyle.None;
             RefreshCodePlate();

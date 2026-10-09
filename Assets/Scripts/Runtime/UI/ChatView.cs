@@ -25,6 +25,12 @@
 // keyboard comes straight back up), so a player can answer without opening the chat again; Enter / Done on an empty line,
 // Esc, the row's close button or the Chat tab close it. Phones: while typing the chat sits at the top of the screen
 // (.chat--phone.chat--open), where the on-screen keyboard can't cover the line (at 36 % its input row ended up under it).
+// Chat rework (players' report from a Retroid Pocket G2): placed and sized relative to the HUD (Chat.uss percentages), and
+// on a small high-density screen (UiScale.Large) the large variant (.chat--large: about 1.5x, finger-sized buttons) with
+// fewer lines (LargeLines; LargeOpenLines while a phone types, so the line stays above the keyboard). The on-screen
+// keyboard shows its own input box again (TouchScreenKeyboard.hideInput false): with it hidden, holding Backspace stopped
+// after one letter and the line stayed hidden under the keyboard; the box is the system's own editing (hold to delete,
+// the cursor, selection). The line never selects all on focus: after a send the next line's letters showed highlighted.
 // Styles: Resources/GoF2Net/Chat.uss.
 
 using GoF2Remake.Data;
@@ -37,7 +43,7 @@ namespace GoF2Remake.UI
     public sealed class ChatView : MonoBehaviour
     {
         const float ShowSeconds = 12f, FadeSeconds = 2f;
-        const int Lines = 8;
+        const int Lines = 8, LargeLines = 5, LargeOpenLines = 4;
         /// <summary>Message_Inc's event volume (FMOD event 125).</summary>
         const float MessageVolume = 0.241f;
         /// <summary>Frames Open keeps focusing the field (the row only shows once its style has applied).</summary>
@@ -57,7 +63,8 @@ namespace GoF2Remake.UI
         int keyboardFrame = -10;        // the frame it was opened (it may not report Visible straight away)
         AudioSource sound;
         AudioClip messageClip;
-        bool open, hooked;
+        bool open, hooked, large;
+        float nextScaleCheck;
         int focusTries, swallowFrame = -1, openFrame = -10, suspendFrame = -10;
 
         /// <summary>The panel on 'parent' (again after a UI reload), on the HUD's own GameObject.</summary>
@@ -109,6 +116,8 @@ namespace GoF2Remake.UI
             field = new TextField { maxLength = NetChat.MaxCommandLength };   // a chat line is cut to MaxLength when sent
             field.AddToClassList("chat-field");
             field.hideSoftKeyboard = SoftKeyboard;   // phones: the chat's own keyboard (OpenKeyboard), whose Done it can see
+            field.selectAllOnFocus = false;          // refocused after a send, the next line's letters showed selected
+            field.selectAllOnMouseUp = false;
             field.RegisterCallback<KeyDownEvent>(OnKey, TrickleDown.TrickleDown);
             field.RegisterValueChangedCallback(e =>
             {
@@ -152,7 +161,22 @@ namespace GoF2Remake.UI
             Rebuild();
             box.EnableInClassList("chat--open", open);
             box.EnableInClassList("chat--phone", SoftKeyboard);
+            nextScaleCheck = 0f;
         }
+
+        /// <summary>The large variant on a small high-density screen (UiScale), checked once a second (a resolution change).</summary>
+        void UpdateScale()
+        {
+            if (Time.unscaledTime < nextScaleCheck || box.panel == null) return;
+            nextScaleCheck = Time.unscaledTime + 1f;
+            bool l = UiScale.Large(box);
+            if (l == large && box.ClassListContains("chat--large") == l) return;
+            large = l;
+            box.EnableInClassList("chat--large", l);
+            Rebuild();
+        }
+
+        int VisibleLines => !large ? Lines : open && SoftKeyboard ? LargeOpenLines : LargeLines;
 
         void OnDestroy()
         {
@@ -170,7 +194,7 @@ namespace GoF2Remake.UI
         {
             if (!SoftKeyboard) return;
             if (keyboard != null && keyboard.status == TouchScreenKeyboard.Status.Visible) return;
-            TouchScreenKeyboard.hideInput = true;
+            TouchScreenKeyboard.hideInput = false;   // the system's input box: its own editing (hold Backspace), above the keyboard
             string text = field.value ?? "";
             keyboard = TouchScreenKeyboard.Open(text, TouchScreenKeyboardType.Default, true, false, false);
             keyboardFrame = Time.frameCount;
@@ -332,6 +356,7 @@ namespace GoF2Remake.UI
             if (!open) return;   // the command ended the session or left the scene
             completionLine = null; completionIndex = -1; completedText = null;
             field.value = "";
+            field.SelectRange(0, 0);
             focusTries = FocusFrames;
             field.Focus();
             OpenKeyboard();
@@ -426,7 +451,7 @@ namespace GoF2Remake.UI
             if (log == null) return;
             log.Clear();
             var all = NetChat.Messages;
-            for (int i = Mathf.Max(0, all.Count - Lines); i < all.Count; i++)
+            for (int i = Mathf.Max(0, all.Count - VisibleLines); i < all.Count; i++)
             {
                 var m = all[i];
                 var line = new Label { pickingMode = PickingMode.Ignore, userData = m, text = Format(m) };
@@ -453,6 +478,7 @@ namespace GoF2Remake.UI
         {
             NetChat.KeepGameKeysOff();
             if (box == null) return;
+            UpdateScale();
             bool session = NetGame.Active;
             bool window = MultiplayerWindow.IsOpenAny;   // the station's multiplayer window: its Chat tab is the chat meanwhile
             box.style.display = session && !window ? DisplayStyle.Flex : DisplayStyle.None;

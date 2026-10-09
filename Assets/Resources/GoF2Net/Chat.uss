@@ -1,11 +1,14 @@
 /* Remake: the lines (full width, no gaps), the tab and the input row are solid: the chat is drawn over the flight HUD's
    key hints on the left and covers them while it shows (at even 95 % the bright hint text showed through). */
 
+/* Placed and sized relative to the HUD (percentages), with a floor so a narrow window keeps a usable line. */
 .chat {
     position: absolute;
-    left: 24px;
+    left: 1.5%;
     top: 36%;
-    width: 560px;
+    width: 30%;
+    min-width: 440px;
+    max-width: 760px;
 }
 
 /* the small Chat button: tapped on a phone, B (the chat key) still opens it too */
@@ -126,8 +129,9 @@
    landscape; at 36 % the input row ended up under it). The Chat tab gives its room to the lines (the row's close button
    closes), and the "/" suggestions stay short so they never push the line down under the keyboard. */
 .chat--phone.chat--open {
-    top: 8px;
-    width: 760px;
+    top: 2%;
+    width: 70%;
+    max-width: none;
 }
 
 .chat--phone.chat--open .chat-tab {
@@ -197,4 +201,63 @@
     left: auto;
     right: 24px;
     top: 9%;
+}
+
+/* Large (UiScale.Large: a small high-density screen such as a 5.5" handheld): everything about 1.5x, the buttons
+   finger-sized (about 6 mm on the Retroid Pocket G2). */
+.chat--large {
+    width: 46%;
+    max-width: none;
+}
+
+.chat--large .chat-tab {
+    min-height: 72px;
+    min-width: 150px;
+    padding: 8px 24px;
+    margin-bottom: 8px;
+    font-size: 24px;
+}
+
+.chat--large .chat-line {
+    padding: 5px 12px;
+    font-size: 25px;
+}
+
+.chat--large .chat-input-row {
+    min-height: 76px;
+    margin-top: 8px;
+}
+
+.chat--large .chat-channel {
+    min-width: 140px;
+    min-height: 76px;
+    padding: 8px 16px;
+    font-size: 22px;
+}
+
+.chat--large .chat-send {
+    min-width: 140px;
+}
+
+.chat--large .chat-close {
+    min-width: 84px;
+    font-size: 34px;
+}
+
+.chat--large .chat-field .unity-base-text-field__input {
+    padding: 10px 14px;
+    font-size: 26px;
+}
+
+.chat--large .chat-suggest-row {
+    padding: 8px 14px;
+    font-size: 23px;
+}
+
+.chat--large.chat--phone .chat-suggest {
+    max-height: 200px;
+}
+
+.chat--large .chat-suggest-hint {
+    font-size: 18px;
 }
