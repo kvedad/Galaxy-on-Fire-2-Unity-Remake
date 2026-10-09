@@ -907,7 +907,7 @@
     font-size: 13px;
 }
 
-.mp-switch-grid .mp-debug-segments .choice-segment:last-child {
+.mp-switch-grid .mp-debug-segments .choice-segment--last {   /* ChoiceRow marks it (Unity 7 has no :last-child) */
     margin-right: 0;
 }
 

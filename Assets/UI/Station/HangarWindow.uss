@@ -377,7 +377,7 @@
     border-radius: 2px;
 }
 
-.trade-all:first-child {
+.trade-all--first {   /* the row's first button (Unity 7 has no :first-child) */
     margin-left: 0;
 }
 
