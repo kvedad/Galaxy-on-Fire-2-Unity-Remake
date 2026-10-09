@@ -247,6 +247,22 @@
     color: rgba(216, 236, 247, 0.8);
 }
 
+/* Multiplayer: a neighbouring station the player's faction holds, an orb on its planet (NavigationView); red while it is
+   besieged (declared or running). */
+.nav-faction {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background-color: rgb(120, 230, 140);
+    border-width: 2px;
+    border-color: rgba(200, 255, 210, 0.9);
+}
+
+.nav-faction--siege {
+    background-color: rgb(255, 102, 85);
+    border-color: rgba(255, 200, 190, 0.9);
+}
+
 /* Autopilot + fast-forward buttons on their pill (left side, touch only; Globals::setCoordsSteer, moved below the
    speed readout). */
 .nav-buttons {

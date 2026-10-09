@@ -1576,6 +1576,7 @@ now takes an option right after another (a dash and a letter) as no value). `Boo
   (set on `AcceptInviteRpc`, cleared on `LeaveSquadRpc`, kept through a disconnect); a controller signing in joins a
   squadmate online (`NetState.RestoreSquad`, anywhere, not only in a hangar). Server console: `profiles`,
   `profile delete <id>` (not while online), `list` marks observers. Not tested in a build yet.
+- **Faction stations on the planets** (`NavigationView`): in flight a neighbouring station's planet held by the player's faction (`NetFactionsClient.Owner`) gets a green orb before its name, red while its siege is declared or running; drawn as an element (no font glyph).
 - **Distress calls** (`NetDistress`): a squad member in space calls for help (the squad window's own row: Distress call /
   End the call, or `/sos`; `NetPlayer.Distress`, owner-written; ends on docking, after 10 min or leaving the squad);
   the squadmates get a notice with where (`NetState.DistressRpc`), a red "⚠" name and a **Help** button in the squad
