@@ -144,6 +144,7 @@ namespace GoF2Remake.Multiplayer
                 NetAdmin.Reset();
                 EventRunner.Reset();
                 NetNews.ServerStart();   // the saved news (a dedicated server with profiles)
+                NetMotd.Load();          // motd.txt
                 seed.Value = pendingSeed;
                 dedicated.Value = pendingDedicated;
                 debugAllowed.Value = NetGame.HostAllowsDebug;
@@ -233,6 +234,24 @@ namespace GoF2Remake.Multiplayer
 
         [Rpc(SendTo.SpecifiedInParams, InvokePermission = RpcInvokePermission.Server)]
         void DestroyedListRpc(int station, int[] indices, RpcParams rpc = default) => NetOrbit.Current?.OnDestroyedList(station, indices);
+
+        // ---- the message of the day (NetMotd) -----------------------------------------------------------------
+
+        /// <summary>A player entered the world: the server's MOTD to them.</summary>
+        [Rpc(SendTo.Server)]
+        public void MotdRequestRpc(RpcParams rpc = default)
+        {
+            ulong client = rpc.Receive.SenderClientId;
+            if (NetRateLimit.Allow(client, NetRateLimit.Kind.Request)) NetMotd.Send(client, false);
+        }
+
+        internal void SendMotd(ulong client, string title, string text, string hash, bool force)
+        {
+            if (IsServer) MotdRpc(title ?? "", text ?? "", hash ?? "", force, RpcTarget.Single(client, RpcTargetUse.Temp));
+        }
+
+        [Rpc(SendTo.SpecifiedInParams, InvokePermission = RpcInvokePermission.Server)]
+        void MotdRpc(string title, string text, string hash, bool force, RpcParams rpc = default) => NetMotd.Received(title, text, hash, force);
 
         // ---- chat (NetChat) ---------------------------------------------------------------------------------
 

@@ -485,6 +485,7 @@ namespace GoF2Remake.Multiplayer
             worldEntered = true;
             if (seed >= 0) Seed = seed;
             Session.DockedFromSpace = false;
+            NetMotd.RequestOnEnter();   // the server's message of the day (shown unless already seen)
             // The session's mods' ship models first (NetMods: a joining game has just turned the session's mods on).
             Modding.ModShips.WhenReady(() => { if (Active) SceneManager.LoadScene(StationScene); });
         }

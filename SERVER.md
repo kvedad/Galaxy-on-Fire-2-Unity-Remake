@@ -16,6 +16,7 @@ arenas, distress calls and their chat commands), see the [README](README.md).
 - [Online or local network](#online-or-local-network)
 - [Command-line options](#command-line-options)
 - [Settings you can change while the server runs](#settings-you-can-change-while-the-server-runs)
+- [Message of the day](#message-of-the-day)
 - [Becoming the server's admin](#becoming-the-servers-admin)
 - [The server console](#the-server-console)
 - [The web admin](#the-web-admin)
@@ -140,6 +141,25 @@ A change is saved in `server_settings.json` and kept after a restart. **An optio
 every start.** The launchers always pass `-name` and `-maxplayers`, so a change of those in the game only lasts until
 the next restart, unless you also change the launcher. The Admin tab marks these settings "set by the launcher".
 
+## Message of the day
+
+Players see the message of the day (MOTD) when they join: a window with the server's name and the text in a monospace
+font, so ASCII art lines up. A player sees it again only when it changes, or with `/motd` in the chat.
+
+The text is the file `motd.txt` in the server's data folder (see [Files the server keeps](#files-the-server-keeps)). Edit
+it with any text editor (UTF-8) and type `/motd reload` in the game or `motd reload` in the console. Every line and
+space is kept; tabs become 4 spaces; at most 60 lines and 4000 bytes. These placeholders are filled in for each player:
+
+| Placeholder | Becomes |
+|---|---|
+| `%player%` | The player's pilot name |
+| `%players%` | How many players are online |
+| `%server%` | The server's name |
+
+For a short message there is no need to edit the file: `/motd set Welcome, %player%!\nBe nice.` (`\n` starts a new
+line) writes it, `/motd clear` empties it. Admins and the console only. A hosted game (not a dedicated server) reads
+`motd.txt` from the game's own data folder.
+
 ## Becoming the server's admin
 
 You don't need the console for this. At every start the server writes a line like this to its log:
@@ -240,6 +260,7 @@ The server's data folder is `ServerProfiles` in the game's data folder, or the f
 | `server_settings.json` | The settings changed while the server ran. |
 | `news.json` | The sector news on the stations' tickers (the last 40 items, at most 3 days old). |
 | `admin_token.txt` | The token for `/claimadmin`. |
+| `motd.txt` | The message of the day (you write it; see [Message of the day](#message-of-the-day)). |
 
 Every file is written through a temporary file, and the previous version is kept as `.bak`. To back the server up,
 copy the whole folder while the server is stopped.
