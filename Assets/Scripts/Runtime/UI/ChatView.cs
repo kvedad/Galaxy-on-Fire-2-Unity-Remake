@@ -504,7 +504,9 @@ namespace GoF2Remake.UI
             bool session = NetGame.Active;
             bool window = MultiplayerWindow.IsOpenAny;   // the station's multiplayer window: its Chat tab is the chat meanwhile
             box.style.display = session && !window ? DisplayStyle.Flex : DisplayStyle.None;
-            if (tab.parent != box) tab.style.display = session && !window ? DisplayStyle.Flex : DisplayStyle.None;   // moved next to the Multiplayer button
+            // Moved next to the Multiplayer button: shown inline (its new classes may hide it, the station's with a controller);
+            // a phone typing hides it (the line stays above the keyboard).
+            if (tab.parent != box) tab.style.display = session && !window && !(open && SoftKeyboard) ? DisplayStyle.Flex : DisplayStyle.None;
             UpdateStats(session);
             if (!session || window) { if (open) Suspend(); return; }
             PollKeyboard();

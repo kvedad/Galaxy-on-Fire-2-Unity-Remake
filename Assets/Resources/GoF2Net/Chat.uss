@@ -39,7 +39,7 @@
     background-color: rgba(143, 216, 255, 0.3);
 }
 
-.chat-tab.chat-tab--open {
+.chat-tab--open {
     border-color: rgb(143, 216, 255);
 }
 
@@ -135,7 +135,7 @@
     max-width: none;
 }
 
-.chat-tab.chat-tab--phone-open {
+.chat-tab--phone-open {
     display: none;
 }
 

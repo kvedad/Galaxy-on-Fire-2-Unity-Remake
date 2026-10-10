@@ -158,14 +158,18 @@ namespace GoF2Remake.UI
                 parent.Add(flightColumn);
                 plateButton.style.marginLeft = 0;
                 plate = plateButton;
-                // The Chat button (ChatView) at the same height, left of it.
-                var row = new VisualElement { pickingMode = PickingMode.Ignore };
-                row.style.flexDirection = FlexDirection.Row;
-                row.style.alignItems = Align.Center;
-                flightColumn.Add(row);
+                flightColumn.Add(plateButton);
+                // The Chat button (ChatView) on the left side at the same height, the Multiplayer button's look.
                 var chatTab = parent.Q<Button>("chatTab");
-                if (chatTab != null) { chatTab.style.marginBottom = 0; chatTab.style.marginRight = 8; row.Add(chatTab); }
-                row.Add(plateButton);
+                if (chatTab != null)
+                {
+                    LookLike(chatTab, plateButton);
+                    chatTab.style.position = Position.Absolute;
+                    chatTab.style.left = 40;   // the status bars' left edge
+                    chatTab.style.top = new Length(17, LengthUnit.Percent);
+                    chatTab.style.marginLeft = chatTab.style.marginRight = chatTab.style.marginTop = chatTab.style.marginBottom = 0;
+                    parent.Add(chatTab);
+                }
                 // The squad's distress call (NetDistress) under it: shown in a squad in space. A click / tap or the
                 // "Distress call" binding (unbound by default) only: like the button above it never takes the focus, so
                 // Space / Enter / a controller's A can't press it by accident.
@@ -191,7 +195,8 @@ namespace GoF2Remake.UI
                 var chatTab = parent.Q<Button>("chatTab");
                 if (chatTab != null)
                 {
-                    chatTab.style.marginBottom = 0;
+                    LookLike(chatTab, plateButton);
+                    chatTab.style.marginTop = chatTab.style.marginBottom = 0;
                     chatTab.style.marginRight = 12;
                     chatTab.style.marginLeft = new StyleLength(StyleKeyword.Auto);   // pushes the group right, like the bar's first button
                     menu.parent.Insert(menu.parent.IndexOf(plateButton), chatTab);
@@ -275,6 +280,19 @@ namespace GoF2Remake.UI
             BuildTabs();
         }
 
+        /// <summary>ChatView's Chat button takes the classes of the button it sits beside (the station's top-bar button, the
+        /// flight HUD's Multiplayer button): the same size, border, font and padding. Its own state classes stay
+        /// (chat-tab--open...); the chat's base look (.chat-tab) goes.</summary>
+        Button movedChat;   // the Chat button placed beside this window's button (its large class follows UpdateLayout)
+
+        void LookLike(Button chatTab, Button neighbour)
+        {
+            movedChat = chatTab;
+            chatTab.RemoveFromClassList("chat-tab");
+            foreach (var c in neighbour.GetClasses()) chatTab.AddToClassList(c);
+            if (sheet != null && !chatTab.styleSheets.Contains(sheet)) chatTab.styleSheets.Add(sheet);
+        }
+
         void BuildTabs()
         {
             tabs.Clear();
@@ -322,9 +340,10 @@ namespace GoF2Remake.UI
         void ApplyWindowSize()
         {
             var w = window.style;
+            // Large: under the top-right buttons (the flight HUD's pause button, the station's Menu): its × overlapped them.
             w.width = new Length(large ? 96 : 64, LengthUnit.Percent);
-            w.top = new Length(raised ? 1 : 50, LengthUnit.Percent);
-            w.height = new Length(raised ? 50 : large ? 94 : 78, LengthUnit.Percent);
+            w.top = new Length(raised ? 1 : large ? 55 : 50, LengthUnit.Percent);
+            w.height = new Length(raised ? 50 : large ? 82 : 78, LengthUnit.Percent);
             w.translate = new Translate(new Length(-50, LengthUnit.Percent), new Length(raised ? 0 : -50, LengthUnit.Percent));
             window.EnableInClassList("mpw--large", large);
         }
@@ -348,6 +367,7 @@ namespace GoF2Remake.UI
             scale = l ? LargeScale : 1f;
             ApplyWindowSize();
             plateButton?.EnableInClassList("squad-button--big", l && flight);
+            movedChat?.EnableInClassList("squad-button--big", l && flight);
             sosButton?.EnableInClassList("squad-button--big", l);
             if (isOpen) Rebuild();
         }

@@ -582,6 +582,9 @@ namespace GoF2Remake.Events
             b.minHeight = 56;
             b.fontSize = 22;
             b.letterSpacing = 2;
+            b.unityTextAlign = TextAnchor.MiddleCenter;   // centred in the button (the theme's buttons align left)
+            b.paddingLeft = b.paddingRight = 24;
+            b.paddingTop = b.paddingBottom = 0;
             b.color = new Color(4f / 255f, 10f / 255f, 18f / 255f);
             b.backgroundColor = Amber;
             b.borderTopWidth = b.borderBottomWidth = b.borderLeftWidth = b.borderRightWidth = 0;
