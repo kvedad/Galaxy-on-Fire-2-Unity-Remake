@@ -31,6 +31,8 @@
 // keyboard shows its own input box again (TouchScreenKeyboard.hideInput false): with it hidden, holding Backspace stopped
 // after one letter and the line stayed hidden under the keyboard; the box is the system's own editing (hold to delete,
 // the cursor, selection). The line never selects all on focus: after a send the next line's letters showed highlighted.
+// The Chat button sits next to the Multiplayer button (MultiplayerWindow moves it: left of it in the station's top bar, at
+// its height in the flight HUD's column), the size of the Menu button.
 // Styles: Resources/GoF2Net/Chat.uss.
 
 using GoF2Remake.Data;
@@ -82,14 +84,18 @@ namespace GoF2Remake.UI
         void Build(VisualElement parent)
         {
             box?.RemoveFromHierarchy();
+            tab?.RemoveFromHierarchy();   // it may have been moved next to the Multiplayer button
             stats?.RemoveFromHierarchy();
             box = new VisualElement { name = "chat", pickingMode = PickingMode.Ignore };
             box.AddToClassList("chat");
             var sheet = Resources.Load<StyleSheet>("GoF2Net/Chat");
             if (sheet != null) box.styleSheets.Add(sheet);
 
-            tab = new Button { focusable = false };   // never a stop for the menus' navigation
+            tab = new Button { name = "chatTab", focusable = false };   // never a stop for the menus' navigation
             tab.AddToClassList("chat-tab");
+            // MultiplayerWindow moves the tab next to its Multiplayer button (the station's top bar, the flight HUD's
+            // column): its own sheet goes with it, and its state classes are its own (TabClasses).
+            if (sheet != null) tab.styleSheets.Add(sheet);
             // Opened on the press (not the release), and the touch stays off the HUD under it (steering, the fire area).
             // Open, it closes the chat (the press may already have taken the field's focus this frame: Suspend first).
             tab.RegisterCallback<PointerDownEvent>(e =>
@@ -159,7 +165,7 @@ namespace GoF2Remake.UI
             RefreshKeys();
             RefreshChannel();
             Rebuild();
-            box.EnableInClassList("chat--open", open);
+            SetOpenClass(open);
             box.EnableInClassList("chat--phone", SoftKeyboard);
             nextScaleCheck = 0f;
         }
@@ -173,7 +179,16 @@ namespace GoF2Remake.UI
             if (l == large && box.ClassListContains("chat--large") == l) return;
             large = l;
             box.EnableInClassList("chat--large", l);
+            tab.EnableInClassList("chat-tab--large", l);
             Rebuild();
+        }
+
+        /// <summary>The box's open state, and the tab's (it may sit elsewhere: MultiplayerWindow).</summary>
+        void SetOpenClass(bool on)
+        {
+            box.EnableInClassList("chat--open", on);
+            tab.EnableInClassList("chat-tab--open", on);
+            tab.EnableInClassList("chat-tab--phone-open", on && SoftKeyboard);
         }
 
         int VisibleLines => !large ? Lines : open && SoftKeyboard ? LargeOpenLines : LargeLines;
@@ -325,7 +340,7 @@ namespace GoF2Remake.UI
         void Open()
         {
             open = true;
-            box.EnableInClassList("chat--open", true);
+            SetOpenClass(true);
             NetChat.SetTyping(true);
             focusTries = FocusFrames;   // Update focuses the field once the row shows (a hidden element can't take it)
             openFrame = Time.frameCount;
@@ -345,7 +360,7 @@ namespace GoF2Remake.UI
         {
             if (!open) return;
             open = false;
-            box.EnableInClassList("chat--open", false);
+            SetOpenClass(false);
             field.value = "";
             CloseKeyboard();
             field.Blur();
@@ -392,7 +407,7 @@ namespace GoF2Remake.UI
             open = false;
             suspendFrame = Time.frameCount;
             CloseKeyboard();
-            box.EnableInClassList("chat--open", false);
+            SetOpenClass(false);
             NetChat.SetTyping(false);
             Rebuild();
             RefreshSuggestions();
@@ -489,6 +504,7 @@ namespace GoF2Remake.UI
             bool session = NetGame.Active;
             bool window = MultiplayerWindow.IsOpenAny;   // the station's multiplayer window: its Chat tab is the chat meanwhile
             box.style.display = session && !window ? DisplayStyle.Flex : DisplayStyle.None;
+            if (tab.parent != box) tab.style.display = session && !window ? DisplayStyle.Flex : DisplayStyle.None;   // moved next to the Multiplayer button
             UpdateStats(session);
             if (!session || window) { if (open) Suspend(); return; }
             PollKeyboard();

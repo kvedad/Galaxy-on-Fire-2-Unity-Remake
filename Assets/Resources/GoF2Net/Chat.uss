@@ -39,7 +39,7 @@
     background-color: rgba(143, 216, 255, 0.3);
 }
 
-.chat--open .chat-tab {
+.chat-tab.chat-tab--open {
     border-color: rgb(143, 216, 255);
 }
 
@@ -135,7 +135,7 @@
     max-width: none;
 }
 
-.chat--phone.chat--open .chat-tab {
+.chat-tab.chat-tab--phone-open {
     display: none;
 }
 
@@ -211,7 +211,7 @@
     max-width: none;
 }
 
-.chat--large .chat-tab {
+.chat-tab.chat-tab--large {
     min-height: 72px;
     min-width: 150px;
     padding: 8px 24px;

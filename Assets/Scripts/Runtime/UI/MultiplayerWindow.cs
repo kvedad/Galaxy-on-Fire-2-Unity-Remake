@@ -158,7 +158,14 @@ namespace GoF2Remake.UI
                 parent.Add(flightColumn);
                 plateButton.style.marginLeft = 0;
                 plate = plateButton;
-                flightColumn.Add(plateButton);
+                // The Chat button (ChatView) at the same height, left of it.
+                var row = new VisualElement { pickingMode = PickingMode.Ignore };
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                flightColumn.Add(row);
+                var chatTab = parent.Q<Button>("chatTab");
+                if (chatTab != null) { chatTab.style.marginBottom = 0; chatTab.style.marginRight = 8; row.Add(chatTab); }
+                row.Add(plateButton);
                 // The squad's distress call (NetDistress) under it: shown in a squad in space. A click / tap or the
                 // "Distress call" binding (unbound by default) only: like the button above it never takes the focus, so
                 // Space / Enter / a controller's A can't press it by accident.
@@ -180,6 +187,16 @@ namespace GoF2Remake.UI
                 plateButton.style.marginRight = 12;
                 plate = plateButton;
                 menu.parent.Insert(menu.parent.IndexOf(menu), plateButton);
+                // The Chat button (ChatView) next to it, on its left, the same size (the bar's buttons).
+                var chatTab = parent.Q<Button>("chatTab");
+                if (chatTab != null)
+                {
+                    chatTab.style.marginBottom = 0;
+                    chatTab.style.marginRight = 12;
+                    chatTab.style.marginLeft = new StyleLength(StyleKeyword.Auto);   // pushes the group right, like the bar's first button
+                    menu.parent.Insert(menu.parent.IndexOf(plateButton), chatTab);
+                    plateButton.style.marginLeft = 0;
+                }
             }
             else
             {
