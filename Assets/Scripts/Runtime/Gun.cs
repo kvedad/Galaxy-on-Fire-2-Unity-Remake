@@ -116,6 +116,9 @@ namespace GoF2Remake.Flight
         bool KillsAsteroids => Coasts || IsBomb || kind == Kind.ShockBlast;
         float FreeLimit => Coasts ? -CoastMs : 0f;
         public bool Ready => reloadAcc > reloadMs && (!isBeam || bullets[0].timer <= 0f);
+        /// <summary>The shortest reload the bullet pool sustains: a bullet frees up just as the next shot needs it (the
+        /// "No primary weapon cooldown" cheat; faster, the pool empties in a burst and the gun waits out a lifetime).</summary>
+        public float SustainedReloadMs => (lifetimeMs - FreeLimit) / bullets.Length;
 
         IReadOnlyList<Target> lastTargets;
 
