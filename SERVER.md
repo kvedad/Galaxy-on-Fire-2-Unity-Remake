@@ -7,7 +7,7 @@ there is also a server-only build without the game's graphics and sound (see
 
 This guide covers setting the server up, its command-line options, the settings you can change while it runs, the
 server console, the files it keeps, and running it as a Linux service. For what players can do in a session (factions,
-arenas, distress calls and their chat commands), see the [README](README.md).
+arenas, distress calls and their chat commands), see [Playing together](docs/MULTIPLAYER.md).
 
 ## Contents
 

@@ -893,6 +893,37 @@
     max-width: 96%;
 }
 
+/* Its rows scroll when the screen is short: as tall as the rows (PauseMenu.BuildDebug sets the height), shrunk to fit
+   the panel's 86 % of the screen. */
+.debug-scroll {
+    flex-shrink: 1;
+    min-height: 140px;
+    margin-bottom: 10px;
+}
+
+/* A small high-density screen (UiScale, the root's ui-large: a phone, the Retroid Pocket G2): the pause menu and its
+   Debug page fill the screen with bigger text and rows. */
+.ui-large .pause-panel {
+    width: 80%;
+    max-height: 94%;
+}
+
+.ui-large .pause-panel--wide {
+    width: 96%;
+}
+
+.ui-large .pause-option,
+.ui-large .pause-option Label,
+.ui-large .pause-text,
+.ui-large .pause-cargo-name,
+.ui-large .pause-cargo-amount {
+    font-size: 28px;
+}
+
+.ui-large .pause-option {
+    padding: 12px 20px;
+}
+
 .debug-action.autopilot-menu-item--selected .option-button {
     background-color: var(--gof-amber);
     color: #0B1016;

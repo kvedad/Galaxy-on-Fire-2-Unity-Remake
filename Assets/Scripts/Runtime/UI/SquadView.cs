@@ -64,6 +64,7 @@ namespace GoF2Remake.UI
 
             box = new VisualElement { name = "squad", pickingMode = PickingMode.Ignore };
             box.AddToClassList("squad");
+            box.EnableInClassList("squad--flight", !hangar);   // under the flight HUD's Multiplayer / Distress call column
             if (sheet != null) box.styleSheets.Add(sheet);
             squadPanel = Panel(out squadHeader, out squadBody, () => { squadCollapsed = !squadCollapsed; squadKey = ""; });
             box.Add(squadPanel);

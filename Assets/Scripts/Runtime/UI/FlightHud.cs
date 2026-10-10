@@ -1436,6 +1436,7 @@ namespace GoF2Remake.UI
                 runtimePanel.match = 1f;
             }
             root.EnableInClassList("layout-phone", phone);
+            root.EnableInClassList("ui-large", UiScale.Large(h, phone ? 900f : 1080f));   // a small high-density screen: bigger lists
             ApplySafeArea(w, h, offscreen);
         }
 

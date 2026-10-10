@@ -5,6 +5,11 @@
     width: 320px;
 }
 
+/* In flight: below the Multiplayer / Distress call buttons on the right (MultiplayerWindow's column at 17 %). */
+.squad--flight {
+    top: 32%;
+}
+
 .squad-panel {
     margin-bottom: 10px;
     background-color: rgba(0, 0, 0, 0.45);
@@ -95,6 +100,17 @@
     border-width: 1px;
     border-color: rgba(216, 236, 247, 0.35);
     border-radius: 2px;
+}
+
+/* The flight HUD's Multiplayer and Distress call buttons: the size of the station's Menu button and the Chat button. */
+.mp-hud-button {
+    min-height: 50px;
+    padding: 12px 22px;
+    font-size: 20px;
+    letter-spacing: 3px;
+    border-width: 2px;
+    border-radius: 4px;
+    -unity-text-align: middle-center;
 }
 
 .squad-button--accept {

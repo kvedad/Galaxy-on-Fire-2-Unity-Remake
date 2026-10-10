@@ -218,7 +218,14 @@ namespace GoF2Remake.UI
             var status = keyboard.status;
             if (status == TouchScreenKeyboard.Status.Visible)
             {
-                if (field.value != text) field.value = text;
+                if (field.value != text)
+                {
+                    field.value = text;
+                    // The caret where the keyboard's is (else it stayed put while the text grew past it, off the field's end).
+                    var sel = keyboard.selection;
+                    int at = sel.start >= 0 && sel.start <= text.Length ? sel.start + Mathf.Max(0, sel.length) : text.Length;
+                    field.SelectRange(Mathf.Min(at, text.Length), Mathf.Min(at, text.Length));
+                }
                 return;
             }
             if (Time.frameCount - keyboardFrame <= 5) return;   // still coming up

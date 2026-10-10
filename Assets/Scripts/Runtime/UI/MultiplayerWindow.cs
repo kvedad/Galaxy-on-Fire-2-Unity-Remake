@@ -53,7 +53,7 @@ namespace GoF2Remake.UI
 
         public static void CloseAny() { if (current != null) current.Close(); }
 
-        VisualElement plate, window, tabs, body, chatPane;
+        VisualElement plate, window, tabs, body, chatPane, flightColumn;
         Button sosButton;
         ScrollView scroll, chatScroll;
         TextField chatField;
@@ -121,6 +121,7 @@ namespace GoF2Remake.UI
             sosButton?.RemoveFromHierarchy();
             plate?.RemoveFromHierarchy();
             window?.RemoveFromHierarchy();
+            flightColumn?.RemoveFromHierarchy();
         }
 
         // ---- building -------------------------------------------------------------------------------------
@@ -144,26 +145,32 @@ namespace GoF2Remake.UI
             {
                 // In flight: on the right, under the HUD readout (top right) and over the squad window (26 %).
                 plateButton = Btn(Localization.Extra("mpMultiplayer", "Multiplayer"), Toggle, large ? "squad-button--big" : null);
+                plateButton.AddToClassList("mp-hud-button");   // the size of the station's Menu button and the Chat button
                 if (sheet != null) plateButton.styleSheets.Add(sheet);
-                plateButton.style.position = Position.Absolute;
-                plateButton.style.right = 24;
-                plateButton.style.top = new Length(17, LengthUnit.Percent);
+                // The two buttons stacked in one column on the right (bigger now, like the Menu and Chat buttons: placed
+                // separately in percentages they overlapped on a phone).
+                flightColumn?.RemoveFromHierarchy();
+                flightColumn = new VisualElement { pickingMode = PickingMode.Ignore };
+                flightColumn.style.position = Position.Absolute;
+                flightColumn.style.right = 24;
+                flightColumn.style.top = new Length(17, LengthUnit.Percent);
+                flightColumn.style.alignItems = Align.FlexEnd;
+                parent.Add(flightColumn);
                 plateButton.style.marginLeft = 0;
                 plate = plateButton;
-                parent.Add(plateButton);
+                flightColumn.Add(plateButton);
                 // The squad's distress call (NetDistress) under it: shown in a squad in space. A click / tap or the
                 // "Distress call" binding (unbound by default) only: like the button above it never takes the focus, so
                 // Space / Enter / a controller's A can't press it by accident.
                 sosButton = Btn(Localization.Extra("mpDistressCall", "Distress call"), ToggleDistress, "squad-button--leave");
                 if (large) sosButton.AddToClassList("squad-button--big");
+                sosButton.AddToClassList("mp-hud-button");
                 if (sheet != null) sosButton.styleSheets.Add(sheet);
                 sosButton.focusable = false;
-                sosButton.style.position = Position.Absolute;
-                sosButton.style.right = 24;
-                sosButton.style.top = new Length(22, LengthUnit.Percent);
                 sosButton.style.marginLeft = 0;
+                sosButton.style.marginTop = 6;
                 sosButton.style.display = DisplayStyle.None;
-                parent.Add(sosButton);
+                flightColumn.Add(sosButton);
             }
             else if (menu != null && menu.parent != null)
             {
