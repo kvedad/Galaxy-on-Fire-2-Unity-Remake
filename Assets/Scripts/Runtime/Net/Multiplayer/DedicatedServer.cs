@@ -11,6 +11,8 @@
 //   -allowmods       the session runs every mod in this game's Mods folders (NetMods); off by default
 //   -port N          the local port (default 7777); -fps N the server's frame rate (default 60)
 //   -freepvp         players may fight anywhere (else only in arena matches, NetArena)
+//   -pvpdamage N -pvpblast N -pvpbeam N -pvpmissile N   PvP damage in % of the weapon's (default 100; NetPvp): every
+//                    weapon, then nukes / bombs / mines, beam lasers, rockets / missiles; -pvpmaxhit N one hit's cap (0 = none)
 //   -cloakhides -capitalships -informeroriginal -nopirateevents -nokaamostacking -nokaamoequipment -nocloakbay -noempcloak -smarttargeting -shipcollision exact|mixed|original
 //                    the session's gameplay options (NetRules), each the other way from the game's default
 //   -kaamomaxlevel N how many times one Kaamo Club upgrade can be fitted to a ship (2..20, default 5; NetRules)
@@ -112,6 +114,9 @@ namespace GoF2Remake.Multiplayer
             NetGame.HostAllowsDebug = HasFlag("-allowdebug");
             NetMods.HostAllowsMods = HasFlag("-allowmods");
             NetGame.FreePvp = HasFlag("-freepvp");
+            int Pct(string option) => int.TryParse(Value(option), out int v) ? v : NetPvp.DefaultPercent;
+            NetPvp.Configure(Pct("-pvpdamage"), Pct("-pvpblast"), Pct("-pvpbeam"), Pct("-pvpmissile"),
+                int.TryParse(Value("-pvpmaxhit"), out int maxHit) ? maxHit : 0);   // PvP damage scaling (NetPvp)
             NetRules.Host = NetRules.Defaults;   // the session's gameplay options: the defaults, a flag turns one the other way
             foreach (var r in NetRules.All) if (HasFlag(r.flag)) NetRules.Host ^= r.bit;
             int collision = SessionRules.ParseCollision(Value(NetRules.CollisionFlag));   // the old -precisecollision = exact
@@ -131,6 +136,7 @@ namespace GoF2Remake.Multiplayer
             ListName = Value("-name") ?? DefaultListName;
             // The settings saved by the admins (server_settings.json) for whatever the command line didn't give.
             NetServerSettings.Load(HasFlag);
+            Debug.Log($"Server: PvP damage: {NetPvp.Summary}.");
             relay = HasFlag("-relay") || Environment.GetEnvironmentVariable(EnvironmentSwitch) == "relay";
             Application.runInBackground = true;
 #if UNITY_STANDALONE_LINUX && !UNITY_EDITOR

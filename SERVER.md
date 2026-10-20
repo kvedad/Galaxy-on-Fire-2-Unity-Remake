@@ -17,6 +17,7 @@ arenas, distress calls and their chat commands), see [Playing together](docs/MUL
 - [Online or local network](#online-or-local-network)
 - [Command-line options](#command-line-options)
 - [Settings you can change while the server runs](#settings-you-can-change-while-the-server-runs)
+- [PvP damage](#pvp-damage)
 - [Message of the day](#message-of-the-day)
 - [Becoming the server's admin](#becoming-the-servers-admin)
 - [The server console](#the-server-console)
@@ -156,6 +157,11 @@ Players on a different game version are turned away with a message saying which 
 | `-noempcloak` | EMP hits don't break cloaks, as in the original (by default an EMP hit drops a cloak at once). |
 | `-smarttargeting` | NPC fighters take the nearest hostile ship and spread out over their targets (by default they go for the player first, as in the original). |
 | `-shipcollision MODE` | Ship collision: `exact` (shots hit every ship and object on its real shape, and players' ships meet each other on it), `mixed` (the default: fighters and players' ships are hit on a box and meet as spheres, as in the original; freighters, capital ships, stations and objects keep their real shape) or `original` (the original's boxes and spheres for everything). The old `-precisecollision` still means `exact`. |
+| `-pvpdamage N` | PvP: players' weapons deal N % of their damage to other players (default 100). Applies on top of the three below. |
+| `-pvpblast N` | PvP: N % for nukes, EMP bombs, ionizing missiles, the Shock Blast and mines (default 100). |
+| `-pvpbeam N` | PvP: N % for beam lasers (default 100). |
+| `-pvpmissile N` | PvP: N % for rockets, missiles and cluster missiles (default 100). |
+| `-pvpmaxhit N` | PvP: the most one hit may deal after scaling (default 0 = no cap). |
 | `-port N` | The port for local network play (default 7777, UDP). |
 | `-fps N` | The server's frame rate (default 60). |
 | `-noconsole` | Windows: no console window of its own. |
@@ -192,12 +198,43 @@ window, **Admin** tab, **Server settings**. You can also type `/set <key> <value
 | `shipcollision` | The ship collision mode above (`exact`, `mixed` or `original`) | At once. |
 | `cloakhides`, `pirateevents`, `capitalships`, `informeroriginal`, `kaamostacking`, `kaamoequipment`, `cloakbay`, `empcloak`, `smarttargeting` | The gameplay rules above (`on` / `off`; `on` = the option on) | At once (new orbits get the spawns that depend on them). |
 | `kaamomaxlevel` | The Kaamo Club upgrade limit above (2-20) | At once for new upgrades; profiles above a lowered limit are cut back at their next sign-in or upload. |
+| `pvpdamage`, `pvpblast`, `pvpbeam`, `pvpmissile`, `pvpmaxhit` | The PvP damage settings above (see [PvP damage](#pvp-damage)) | At once. |
 | `maxearn` | Worth a profile may gain per minute | At once. |
 | `claimcost`, `maxclaims`, `claimdays`, `siegecost`, `toll` | The faction settings above | At once. |
 
 A change is saved in `server_settings.json` and kept after a restart. **An option given on the command line wins at
 every start.** The launchers always pass `-name` and `-maxplayers`, so a change of those in the game only lasts until
 the next restart, unless you also change the launcher. The Admin tab marks these settings "set by the launcher".
+
+## PvP damage
+
+Every hit a player's weapon lands on another player goes through the server. The server:
+
+1. Checks it against the weapon. A hit can't deal more than the weapon's damage times the strongest weapon mod. A bigger
+   hit (a modified game, or the Debug menu's one-hit kills on an old build) is cut to that and logged as a warning.
+2. Scales it by the PvP settings: `pvpdamage` for every weapon, then `pvpblast`, `pvpbeam` or `pvpmissile` for the
+   weapon's kind. With `pvpdamage 50` and `pvpblast 40`, a nuke deals 20 % of its damage.
+3. Caps it at `pvpmaxhit` (0 = no cap).
+4. Writes it to the log.
+
+Hits from NPCs aren't changed. The defaults (100 %, no cap) are the original game's damage.
+
+The log lines start with `Server: pvp` (`grep "Server: pvp"`). Hits from one player on another with one weapon are
+summed and written once they stop for 3 seconds:
+
+```
+Server: pvp Alice hit Bob with AMR Extinctor (46): 1 hit, 610 dealt, biggest 610; Bob now shield 0%, armor 0%, hull 51%
+```
+
+"sent" in brackets is what the shooter's game sent, when the server changed it. The pools after "now" are what the
+victim's game last reported, so they can be a moment behind. When a player destroys another, one line lists every
+player hit the victim took in the last 20 seconds, by shooter and weapon:
+
+```
+Server: pvp Bob destroyed by Alice; player hits in the last 20 s: Alice AMR Extinctor (46) 1 x = 610 (biggest 610); Alice M6 A3 "Wolverine" (11) 6 x = 276 (biggest 46); 886 in all over 3.2 s
+```
+
+The server's startup log has a line `Server: PvP damage: ...` with the current settings.
 
 ## Message of the day
 

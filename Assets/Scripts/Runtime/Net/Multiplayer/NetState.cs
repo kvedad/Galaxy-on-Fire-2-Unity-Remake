@@ -631,6 +631,7 @@ namespace GoF2Remake.Multiplayer
             var victim = NetSquad.Find(client);
             var by = NetSquad.Find(killer);
             if (victim == null || by == null || !HitRecently(victim.NetworkObjectId, killer, 30f)) return;
+            NetPvp.OnKill(victim.OwnerClientId, by.OwnerClientId);     // the log: what hit them, by shooter and weapon
             NetArena.OnKill(victim.OwnerClientId, by.OwnerClientId);   // an arena match's score
             NetFactions.OnPilotKilled(victim, by);                     // a siege fight: the killer repaired
             NoticeRpc(string.Format(Localization.Extra("mpDestroyedBy", "{0} was destroyed by {1}."), victim.DisplayName, by.DisplayName));
@@ -1526,6 +1527,7 @@ namespace GoF2Remake.Multiplayer
             if (!IsServer || !IsSpawned) return;
             NetTrade.Tick();      // trade requests and trades that ran out, sides that left the hangar
             NetAudit.Tick();      // the shop runs that stopped, into the money log
+            NetPvp.Tick();        // the players' hits on players that stopped, into the log
             NetProfiles.Tick();   // link codes and handovers that ran out
             NetArena.Tick();      // queues, countdowns, time limits
             if (NetProfiles.Enabled) NetFactions.Tick();   // claims kept by docking members, lapses, stale deposits

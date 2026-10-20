@@ -587,7 +587,7 @@ namespace GoF2Remake.Flight
             bool wasAlive = target.Alive;
             target.lastPlayerWeapon = r.gun.itemIndex;
             float damage = missile && target.isAsteroid ? 9999f : r.gun.damage;
-            if (Cheats.OneHitKills && !target.isPlayer) damage = 99999999f;
+            if (Cheats.OneHitKills && !target.isPlayer && !target.remotePlayer) damage = 99999999f;   // never on another player
             target.Damage(damage, false, r.gun.bullets[bullet].velocity, r.gun.shieldFactor);
             if (wasAlive && !target.Alive && target.isAsteroid) { Session.AsteroidsDestroyed++; CountAsteroidMedals(r.gun); }   // Status+0xd8
             ApplyEmp(target, (int)r.gun.emp);
@@ -610,7 +610,7 @@ namespace GoF2Remake.Flight
         {
             bool wasAlive = target.Alive;
             target.lastPlayerWeapon = r.gun.itemIndex;
-            if (Cheats.OneHitKills && !target.isPlayer && dmg > 0) dmg = 99999999;
+            if (Cheats.OneHitKills && !target.isPlayer && !target.remotePlayer && dmg > 0) dmg = 99999999;   // never on another player
             if (dmg > 0) target.Damage(dmg, false, (target.transform.position - center).normalized);
             if (wasAlive && !target.Alive && target.isAsteroid)
             {

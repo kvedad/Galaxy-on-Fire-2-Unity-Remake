@@ -249,6 +249,10 @@ namespace GoF2Remake.Multiplayer
         public void SetFactionHome(int station) { if (IsServer && factionHome.Value != station) factionHome.Value = station; }
         /// <summary>The name with the faction's tag before it ("[TAG] Name"): the lock plate and the chat.</summary>
         public string TaggedName => FactionTag.Length > 0 ? $"[{FactionTag}] {DisplayName}" : DisplayName;
+        /// <summary>The server's log (NetPvp): this player's pools as their owner last wrote them.</summary>
+        internal string PoolText =>
+            $"shield {(shield.Value < 0f ? "none" : Mathf.RoundToInt(shield.Value * 100f) + "%")}, armor {(armor.Value < 0f ? "none" : Mathf.RoundToInt(armor.Value * 100f) + "%")}, hull {Mathf.RoundToInt(hull.Value * 100f)}%";
+
         public string DisplayName
         {
             get
@@ -325,7 +329,9 @@ namespace GoF2Remake.Multiplayer
             target.maxHp = 100f;
             // This player's weapons hitting them count toward them being this player's enemy too (NetAggression, both ways); an NPC's shot
             // relayed by this orbit's authority isn't.
-            target.RemoteDamage = (amount, hitVector, byNpc, shieldFactor) => { if (!byNpc) NetAggression.Hit(OwnerClientId, amount); HitUpRpc(amount, hitVector, byNpc, shieldFactor); };
+            target.remotePlayer = true;   // the Debug menu's one-hit kills never reach another player (WeaponSystem)
+            // The weapon goes with the hit (Target.lastPlayerWeapon, set by the hit's handler): the server scales and logs PvP by it (NetPvp).
+            target.RemoteDamage = (amount, hitVector, byNpc, shieldFactor) => { if (!byNpc) NetAggression.Hit(OwnerClientId, amount); HitUpRpc(amount, hitVector, byNpc, shieldFactor, byNpc ? -1 : target.lastPlayerWeapon); };
             target.RemoteEmp = emp => { NetAggression.Hit(OwnerClientId, emp); EmpUpRpc(emp); };
             ApplyName();
             pilot.OnValueChanged += (_, _) => ApplyName();
@@ -417,7 +423,7 @@ namespace GoF2Remake.Multiplayer
         /// other's line of fire), a finite damage up to NetGuard.MaxDamage, at its rate. (A direct RPC to the owner let a
         /// modified client destroy any player anywhere, or send NaN damage.)</summary>
         [Rpc(SendTo.Server)]
-        void HitUpRpc(float amount, Vector3 hitVector, bool byNpc, float shieldFactor, RpcParams rpc = default)
+        void HitUpRpc(float amount, Vector3 hitVector, bool byNpc, float shieldFactor, int item, RpcParams rpc = default)
         {
             ulong shooter = rpc.Receive.SenderClientId;
             if (shooter == OwnerClientId || !NetRateLimit.Allow(shooter, NetRateLimit.Kind.Hit)) return;
@@ -427,6 +433,11 @@ namespace GoF2Remake.Multiplayer
             var by = NetSquad.Find(shooter);
             if (!NetGuard.SameOrbit(by, this)) return;   // gone from the orbit a moment ago, or a hit from elsewhere
             if (!byNpc && NetSquad.Same(by, this)) return;
+            if (!byNpc)
+            {
+                amount = NetPvp.OnHit(shooter, this, item, amount);   // checked against the weapon, the server's PvP scaling, the log
+                if (amount <= 0f) return;
+            }
             NetState.Instance?.NoteHit(NetworkObjectId, shooter);
             HitRpc(amount, hitVector, byNpc, shooter, shieldFactor);
         }

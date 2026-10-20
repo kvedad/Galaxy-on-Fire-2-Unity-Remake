@@ -511,6 +511,7 @@ namespace GoF2Remake.Multiplayer
             // A persistent hosted world: the host's own game straight into its profile (no network in between).
             if (manager != null && manager.IsHost && PersistentHost && worldEntered && !closing) NetProfileClient.SaveHostNow();
             NetAudit.Tick(true);   // the server's shop runs still open, into the log
+            NetPvp.Tick(true);     // and the PvP hits
             NetChat.Clear();
             NetSquad.Clear();
             NetTradeClient.Clear();

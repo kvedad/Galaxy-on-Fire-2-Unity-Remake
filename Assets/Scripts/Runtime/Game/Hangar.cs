@@ -339,8 +339,12 @@ namespace GoF2Remake.Data
                 int at = Stock.items.FindIndex(s => s.item > item);
                 Stock.items.Insert(at < 0 ? Stock.items.Count : at, new ItemStack(item, 1));   // the stock stays in index order
             }
-            if (!Storage) Shared(item, 1, 0);   // multiplayer: the shared stock
-            if (!Storage) ChangeCredits(GameHooks.FactionSellPrice != null ? GameHooks.FactionSellPrice(Station, PriceOf(item)) : PriceOf(item));   // multiplayer: no more than a member pays
+            if (!Storage)
+            {
+                int paid = GameHooks.FactionSellPrice != null ? GameHooks.FactionSellPrice(Station, PriceOf(item)) : PriceOf(item);   // multiplayer: no more than a member pays
+                Shared(item, 1, paid);   // multiplayer: the shared stock (the price for the host's money log)
+                ChangeCredits(paid);
+            }
             Session.SeenItems.Add(item);
             if (Session.IsBooze(item)) Session.BoozeTypes.Add(item);   // HangarWindow::selectItem: a committed booze trade
             return Result.Ok;

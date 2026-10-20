@@ -1254,6 +1254,15 @@ Single player is untouched: every multiplayer path runs only while `NetGame.Acti
   server started with `-freepvp` (`NetState.FreePvp`, `NetGame.FreePvp`): elsewhere another player's ship is
   `playerProof` (shots pass) and the owner's `HitRpc` / `EmpRpc` drop a player's hit unless the sender is in the same
   orbit and may fight (`NetPlayer.PvpWith`).
+- **PvP damage** (`NetPvp`, server; SERVER.md "PvP damage"): every player-on-player hit (`NetPlayer.HitUpRpc`, never an
+  NPC's) carries its weapon item (`Target.lastPlayerWeapon`, set by `WeaponSystem`, `PlayerTurret`,
+  `PlayerCapitalMissiles`) and is cut to what that weapon can deal (attr 9 x the strongest sort-28 damage factor; a warning),
+  scaled by the server settings `pvpdamage` x `pvpblast` (nukes, EMP bombs, ionizing, Shock Blast, mines) / `pvpbeam` (beam
+  lasers) / `pvpmissile` (rockets, missiles, cluster missiles), capped by `pvpmaxhit` (0 = none), and logged ("Server: pvp":
+  runs per shooter / victim / weapon flushed after 3 s with the victim's pools, and on a kill
+  (`NetState.DestroyedByRpc`) the victim's last 20 s of player hits). Defaults 100 % / no cap. The Debug menu's one-hit
+  kills skip other players (`Target.remotePlayer`): before, 99 999 999 passed `NetGuard.MaxDamage` (1e8 with the Debug
+  menu allowed) and one-shot players on the debug server (2026-10-20, a player's report).
 - **Server settings while running** (`NetServerSettings`; the operator guide is `SERVER.md`, keep it in step with the
   server's options and commands): name, password, maxplayers, allowdebug, freepvp, maxearn, claimcost,
   maxclaims, claimdays, siegecost, toll. Changed by admins (`/set <key> <value>`, `/settings`, the Admin tab's Server
