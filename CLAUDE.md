@@ -1263,6 +1263,10 @@ Single player is untouched: every multiplayer path runs only while `NetGame.Acti
   (`NetState.DestroyedByRpc`) the victim's last 20 s of player hits). Defaults 100 % / no cap. The Debug menu's one-hit
   kills skip other players (`Target.remotePlayer`): before, 99 999 999 passed `NetGuard.MaxDamage` (1e8 with the Debug
   menu allowed) and one-shot players on the debug server (2026-10-20, a player's report).
+  Beam lasers auto-aim only at enemies or the radar lock (`WeaponSystem.BeamTarget`) and otherwise hit nothing, and
+  another player was an enemy only after `NetAggression` (3 hits / 50 damage, forgotten on a death), so after every
+  respawn a siege opponent's beams were dead; now the other side of a siege, an arena match or a free for all is
+  `hostileToPlayer` from the start (`NetPlayer.EnemyByRule`); free PvP alone still needs the attack.
 - **Server settings while running** (`NetServerSettings`; the operator guide is `SERVER.md`, keep it in step with the
   server's options and commands): name, password, maxplayers, allowdebug, freepvp, maxearn, claimcost,
   maxclaims, claimdays, siegecost, toll. Changed by admins (`/set <key> <value>`, `/settings`, the Admin tab's Server

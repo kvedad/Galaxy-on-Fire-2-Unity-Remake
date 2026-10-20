@@ -404,6 +404,14 @@ namespace GoF2Remake.Multiplayer
             other != null && ((NetState.Instance != null && NetState.Instance.FreePvp) || NetState.FreeForAll || NetArena.IsArenaOrbit(other.Station)
                               || (Local != null && NetFactionsClient.SiegePvp(other.Station, Local.FactionTag, other.FactionTag)));   // a faction siege
 
+        /// <summary>An enemy without having attacked first: the other side of a faction siege, anyone in an arena match or an
+        /// event's free for all. (Free PvP alone isn't: there a player is an enemy only once one of the two attacked,
+        /// NetAggression.) Beam lasers auto-aim only at enemies or the radar lock (WeaponSystem.BeamTarget): before, after every
+        /// respawn a siege opponent was neutral until 3 hits landed, so the beams fired at nothing.</summary>
+        static bool EnemyByRule(NetPlayer other) =>
+            other != null && (NetState.FreeForAll || NetArena.IsArenaOrbit(other.Station)
+                              || (Local != null && NetFactionsClient.SiegePvp(other.Station, Local.FactionTag, other.FactionTag)));
+
         /// <summary>This player's shots pass through their squadmates (the local player's ship included).</summary>
         bool ThroughSquad(Target t)
         {
@@ -703,7 +711,7 @@ namespace GoF2Remake.Multiplayer
                     target.playerProof = mate || !PvpWith(this);   // free roam: no player hurts another (NetArena)
                     // An enemy after attacking this player, until one of them is destroyed (NetAggression): a red marker, the
                     // turrets and sentries fire at them (only where players may fight).
-                    target.hostileToPlayer = !mate && PvpWith(this) && NetAggression.IsHostile(OwnerClientId);
+                    target.hostileToPlayer = !mate && PvpWith(this) && (EnemyByRule(this) || NetAggression.IsHostile(OwnerClientId));
                 }
                 mirror?.Update(Time.deltaTime * 1000f);
                 return;
