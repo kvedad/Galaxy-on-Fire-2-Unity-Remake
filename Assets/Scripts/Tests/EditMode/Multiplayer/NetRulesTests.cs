@@ -33,10 +33,11 @@ namespace GoF2Remake.Tests
             ("cloakbay", "-nocloakbay", true),
             ("empcloak", "-noempcloak", true),
             ("smarttargeting", "-smarttargeting", false),
+            ("factionfire", "-factionfire", false),
         };
 
         [Test]
-        public void NineRulesWithTheirFlagsAndDefaults()
+        public void TenRulesWithTheirFlagsAndDefaults()
         {
             Assert.AreEqual(Documented.Length, NetRules.All.Count);
             foreach (var (key, flag, on) in Documented)
@@ -77,6 +78,7 @@ namespace GoF2Remake.Tests
             Assert.AreEqual(SessionRules.SmarterNpcTargeting, NetRules.SmarterNpcTargeting);
             Assert.AreEqual(SessionRules.PreciseShipCollision, NetRules.PreciseShipCollision);
             Assert.AreEqual(SessionRules.OriginalCollision, NetRules.OriginalCollision);
+            Assert.AreEqual(SessionRules.FactionFire, NetRules.FactionFire);
         }
 
         [Test]

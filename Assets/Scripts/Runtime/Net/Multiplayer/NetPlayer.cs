@@ -408,6 +408,19 @@ namespace GoF2Remake.Multiplayer
         /// event's free for all. (Free PvP alone isn't: there a player is an enemy only once one of the two attacked,
         /// NetAggression.) Beam lasers auto-aim only at enemies or the radar lock (WeaponSystem.BeamTarget): before, after every
         /// respawn a siege opponent was neutral until 3 hits landed, so the beams fired at nothing.</summary>
+        /// <summary>Two pilots of one faction, out of each other's line of fire like squadmates (green markers, shots pass,
+        /// hits and EMP refused by the server and the victim's game), unless the server's factionfire rule is on or they are
+        /// in an arena match or an event's free for all. Both sides use it: the server with the two players' server-written
+        /// tags (HitUpRpc, EmpUpRpc), each game with its own player as 'a'.</summary>
+        internal static bool FactionProtected(NetPlayer a, NetPlayer b)
+        {
+            if (a == null || b == null || a == b) return false;
+            string ta = a.FactionTag, tb = b.FactionTag;
+            if (string.IsNullOrEmpty(ta) || ta != tb) return false;
+            if (NetRules.TryGet(NetRules.FactionFire, out bool fire) && fire) return false;
+            return !NetState.FreeForAll && !NetArena.IsArenaOrbit(b.Station);
+        }
+
         static bool EnemyByRule(NetPlayer other) =>
             other != null && (NetState.FreeForAll || NetArena.IsArenaOrbit(other.Station)
                               || (Local != null && NetFactionsClient.SiegePvp(other.Station, Local.FactionTag, other.FactionTag)));
@@ -440,7 +453,7 @@ namespace GoF2Remake.Multiplayer
             shieldFactor = byNpc || float.IsNaN(shieldFactor) ? 1f : Mathf.Clamp(shieldFactor, 0.01f, 10f);
             var by = NetSquad.Find(shooter);
             if (!NetGuard.SameOrbit(by, this)) return;   // gone from the orbit a moment ago, or a hit from elsewhere
-            if (!byNpc && NetSquad.Same(by, this)) return;
+            if (!byNpc && (NetSquad.Same(by, this) || FactionProtected(by, this))) return;   // squadmates, faction mates
             if (!byNpc)
             {
                 amount = NetPvp.OnHit(shooter, this, item, amount);   // checked against the weapon, the server's PvP scaling, the log
@@ -461,7 +474,7 @@ namespace GoF2Remake.Multiplayer
             if (!byNpc)
             {
                 var from = NetSquad.Find(shooter);
-                if (from == null || from.Station != Station || !PvpWith(from)) return;
+                if (from == null || from.Station != Station || !PvpWith(from) || FactionProtected(this, from)) return;
             }
             bool alive = own.Alive;
             if (alive && !byNpc) NetAggression.Hit(shooter, amount);   // an attack makes them an enemy here (NetAggression)
@@ -595,7 +608,7 @@ namespace GoF2Remake.Multiplayer
             if (shooter == OwnerClientId || !NetRateLimit.Allow(shooter, NetRateLimit.Kind.Hit)) return;
             if (emp <= 0 || emp > NetGuard.MaxDamage) { NetRateLimit.Reject(shooter, $"an EMP of {emp}"); return; }
             var by = NetSquad.Find(shooter);
-            if (!NetGuard.SameOrbit(by, this) || NetSquad.Same(by, this)) return;
+            if (!NetGuard.SameOrbit(by, this) || NetSquad.Same(by, this) || FactionProtected(by, this)) return;
             EmpRpc(emp, shooter);
         }
 
@@ -605,7 +618,7 @@ namespace GoF2Remake.Multiplayer
         void EmpRpc(int emp, ulong shooter)
         {
             var from = NetSquad.Find(shooter);
-            if (from == null || from.Station != Station || !PvpWith(from)) return;   // only where players may fight
+            if (from == null || from.Station != Station || !PvpWith(from) || FactionProtected(this, from)) return;   // only where players may fight
             var hp = level != null && level.Health != null && level.Health.Target != null ? level.Health.Target.hitpoints : null;
             if (hp == null || !hp.Alive || level.Health.Target.phased) return;   // a phase cloak: it passes through
             PlayerCloak.Of(level.Health)?.Break();   // remake (Settings.EmpBreaksCloak, the session's): the cloak drops
@@ -706,7 +719,7 @@ namespace GoF2Remake.Multiplayer
                     target.hp = hull.Value * target.maxHp;   // 0 = destroyed: no marker, no lock, no NPC after it
                     target.netShield = shield.Value;          // their marker's shield bar and armor over the hull (CombatView)
                     target.netArmor = armor.Value;
-                    bool mate = NetSquad.Same(this, Local);   // squadmates: green, out of each other's line of fire
+                    bool mate = NetSquad.Same(this, Local) || FactionProtected(Local, this);   // squadmates, faction mates: green, out of each other's line of fire
                     target.friendToPlayer = mate;
                     target.playerProof = mate || !PvpWith(this);   // free roam: no player hurts another (NetArena)
                     // An enemy after attacking this player, until one of them is destroyed (NetAggression): a red marker, the

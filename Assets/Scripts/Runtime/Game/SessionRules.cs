@@ -8,7 +8,8 @@ namespace GoF2Remake.Data
     {
         public const int CloakLosesPursuers = 1, PirateEvents = 2, CapitalShips = 4, InformerOriginalRule = 8,
                          KaamoStacking = 16, KaamoKeepsEquipment = 32, CloakBay = 64, EmpBreaksCloak = 128,
-                         SmarterNpcTargeting = 256, PreciseShipCollision = 512, OriginalCollision = 1024;
+                         SmarterNpcTargeting = 256, PreciseShipCollision = 512, OriginalCollision = 1024,
+                         FactionFire = 2048;   // multiplayer only: faction mates may hurt each other (NetPlayer.FactionProtected)
 
         /// <summary>Remake: the ship collision mode (Settings.ShipCollision), carried in sessions by two bits:
         /// PreciseShipCollision = Exact, OriginalCollision = Original (it wins), neither = Mixed.

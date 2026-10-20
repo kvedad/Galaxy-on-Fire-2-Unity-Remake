@@ -21,7 +21,7 @@ namespace GoF2Remake.Multiplayer
                          KaamoStacking = SessionRules.KaamoStacking, KaamoKeepsEquipment = SessionRules.KaamoKeepsEquipment,
                          CloakBay = SessionRules.CloakBay, EmpBreaksCloak = SessionRules.EmpBreaksCloak,
                          SmarterNpcTargeting = SessionRules.SmarterNpcTargeting, PreciseShipCollision = SessionRules.PreciseShipCollision,
-                         OriginalCollision = SessionRules.OriginalCollision;
+                         OriginalCollision = SessionRules.OriginalCollision, FactionFire = SessionRules.FactionFire;
 
         /// <summary>One rule: its bit, the server setting's key, the command-line flag that sets it the other way from
         /// its default, the server window's label, and the option's default.</summary>
@@ -43,6 +43,8 @@ namespace GoF2Remake.Multiplayer
             new Rule { bit = CloakBay, key = "cloakbay", flag = "-nocloakbay", label = "Cloak bay on cloaking ships", fallback = true },
             new Rule { bit = EmpBreaksCloak, key = "empcloak", flag = "-noempcloak", label = "EMP breaks cloaks", fallback = true },
             new Rule { bit = SmarterNpcTargeting, key = "smarttargeting", flag = "-smarttargeting", label = "Smarter NPC targeting", fallback = false },
+            // No player option: off for a player host, -factionfire / the setting on a server (NetPlayer.FactionProtected).
+            new Rule { bit = FactionFire, key = "factionfire", flag = "-factionfire", label = "Faction mates can hurt each other (outside arena matches and free for alls)", fallback = false },
         };
 
         /// <summary>Every rule at its option's default (a dedicated server's start).</summary>

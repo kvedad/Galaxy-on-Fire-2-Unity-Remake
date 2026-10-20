@@ -13,7 +13,7 @@
 //   -freepvp         players may fight anywhere (else only in arena matches, NetArena)
 //   -pvpdamage N -pvpblast N -pvpbeam N -pvpmissile N   PvP damage in % of the weapon's (default 100; NetPvp): every
 //                    weapon, then nukes / bombs / mines, beam lasers, rockets / missiles; -pvpmaxhit N one hit's cap (0 = none)
-//   -cloakhides -capitalships -informeroriginal -nopirateevents -nokaamostacking -nokaamoequipment -nocloakbay -noempcloak -smarttargeting -shipcollision exact|mixed|original
+//   -cloakhides -capitalships -informeroriginal -nopirateevents -nokaamostacking -nokaamoequipment -nocloakbay -noempcloak -smarttargeting -factionfire -shipcollision exact|mixed|original
 //                    the session's gameplay options (NetRules), each the other way from the game's default
 //   -kaamomaxlevel N how many times one Kaamo Club upgrade can be fitted to a ship (2..20, default 5; NetRules)
 //   -flightmodel M   the flight model: gof2 (the game's) or es2 (EVERSPACE 2 style) for everyone, or player / any (each

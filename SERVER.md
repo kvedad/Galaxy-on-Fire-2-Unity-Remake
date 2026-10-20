@@ -156,6 +156,7 @@ Players on a different game version are turned away with a message saying which 
 | `-nocloakbay` | A cloak mounted on the Specter or the Scimitar takes an equipment slot, as in the original (by default it goes into their integrated cloak's bay). |
 | `-noempcloak` | EMP hits don't break cloaks, as in the original (by default an EMP hit drops a cloak at once). |
 | `-smarttargeting` | NPC fighters take the nearest hostile ship and spread out over their targets (by default they go for the player first, as in the original). |
+| `-factionfire` | Pilots of the same faction can hurt each other. Off by default: faction mates are like squadmates (green markers, shots pass through, no damage or EMP), except in arena matches and event free-for-alls. |
 | `-shipcollision MODE` | Ship collision: `exact` (shots hit every ship and object on its real shape, and players' ships meet each other on it), `mixed` (the default: fighters and players' ships are hit on a box and meet as spheres, as in the original; freighters, capital ships, stations and objects keep their real shape) or `original` (the original's boxes and spheres for everything). The old `-precisecollision` still means `exact`. |
 | `-pvpdamage N` | PvP: players' weapons deal N % of their damage to other players (default 100). Applies on top of the three below. |
 | `-pvpblast N` | PvP: N % for nukes, EMP bombs, ionizing missiles, the Shock Blast and mines (default 100). |
@@ -196,7 +197,7 @@ window, **Admin** tab, **Server settings**. You can also type `/set <key> <value
 | `freepvp` | Players may fight anywhere (`on` / `off`) | At once. |
 | `flightmodel` | The flight model above (`gof2`, `es2` or `player`; also `/flightmodel`) | At once. |
 | `shipcollision` | The ship collision mode above (`exact`, `mixed` or `original`) | At once. |
-| `cloakhides`, `pirateevents`, `capitalships`, `informeroriginal`, `kaamostacking`, `kaamoequipment`, `cloakbay`, `empcloak`, `smarttargeting` | The gameplay rules above (`on` / `off`; `on` = the option on) | At once (new orbits get the spawns that depend on them). |
+| `cloakhides`, `pirateevents`, `capitalships`, `informeroriginal`, `kaamostacking`, `kaamoequipment`, `cloakbay`, `empcloak`, `smarttargeting`, `factionfire` | The gameplay rules above (`on` / `off`; `on` = the option on) | At once (new orbits get the spawns that depend on them). |
 | `kaamomaxlevel` | The Kaamo Club upgrade limit above (2-20) | At once for new upgrades; profiles above a lowered limit are cut back at their next sign-in or upload. |
 | `pvpdamage`, `pvpblast`, `pvpbeam`, `pvpmissile`, `pvpmaxhit` | The PvP damage settings above (see [PvP damage](#pvp-damage)) | At once. |
 | `maxearn` | Worth a profile may gain per minute | At once. |

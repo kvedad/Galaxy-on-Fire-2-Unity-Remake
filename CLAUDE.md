@@ -1267,6 +1267,10 @@ Single player is untouched: every multiplayer path runs only while `NetGame.Acti
   another player was an enemy only after `NetAggression` (3 hits / 50 damage, forgotten on a death), so after every
   respawn a siege opponent's beams were dead; now the other side of a siege, an arena match or a free for all is
   `hostileToPlayer` from the start (`NetPlayer.EnemyByRule`); free PvP alone still needs the attack.
+  Faction mates are protected like squadmates (`NetPlayer.FactionProtected`: green, `playerProof`, their hits and EMP
+  dropped by the server's `HitUpRpc` / `EmpUpRpc` and the victim's `HitRpc` / `EmpRpc`), except in arena matches, an
+  event's free for all, or with the session rule `factionfire` (`NetRules.FactionFire`, bit 2048, no player option: off
+  for a player host, `-factionfire` / `/set factionfire on` on a server); before, `freepvp` let them hurt each other.
 - **Server settings while running** (`NetServerSettings`; the operator guide is `SERVER.md`, keep it in step with the
   server's options and commands): name, password, maxplayers, allowdebug, freepvp, maxearn, claimcost,
   maxclaims, claimdays, siegecost, toll. Changed by admins (`/set <key> <value>`, `/settings`, the Admin tab's Server
