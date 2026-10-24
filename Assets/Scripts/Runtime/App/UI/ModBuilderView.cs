@@ -64,7 +64,8 @@ namespace GoF2Remake.UI
         enum Drag { None, Gizmo, Camera, Pan }
         Drag drag;
         Vector2 last, downAt;
-        float travel, pinch = -1f;
+        float travel;
+        readonly TwoFingerTouch touch2 = new TwoFingerTouch();
         Vector2 fling;
         // The drag's turn not yet applied (1080p pixels): pointer moves come at the mouse's rate, not the frame's (0, 1 or 2
         // in a frame), so turning by each one as it came stepped unevenly and felt like dropped frames; the camera now
@@ -103,15 +104,15 @@ namespace GoF2Remake.UI
             }
             var choices = new List<(string, Texture2D, Action)>
             {
-                (T("mbPlayHere", "Play from this station") + "\n" + T("mbPlayHereSub", "Dock, fly, trade: your systems, stations, ships and bar missions are in the game"), null,
+                (T("mbPlayHere", "Play from this station") + "\n" + T("mbPlayHereSub", "Play the game with your mod in it"), null,
                  () => Run(() => { ModBuilderPlay.Start(); return null; })),
             };
             if (Project.Campaign != null)
-                choices.Add((T("mbPlayCampaign", "Play the campaign") + "\n" + T("mbPlayCampaignSub", "From its start: its station, ship and story quest"), null, () => Run(ModBuilderPlay.StartCampaign)));
+                choices.Add((T("mbPlayCampaign", "Play the campaign") + "\n" + T("mbPlayCampaignSub", "From its start: its station, ship and story mission"), null, () => Run(ModBuilderPlay.StartCampaign)));
             foreach (var q in Project.Quests)
             {
                 var quest = q;
-                choices.Add((string.Format(T("mbPlayQuestN", "Play \"{0}\""), q.Title ?? q.Name) + "\n" + T("mbPlayQuestSub", "With the quest under way from its first step"), null,
+                choices.Add((string.Format(T("mbPlayQuestN", "Play \"{0}\""), q.Title ?? q.Name) + "\n" + T("mbPlayQuestSub", "With the mission under way from its first step"), null,
                              () => Run(() => ModBuilderPlay.StartQuest(quest.Name))));
             }
             ShowPicker(T("mbPlay", "Play"), choices);
@@ -130,7 +131,7 @@ namespace GoF2Remake.UI
             new DragScroll(shipScroll);
             shipList = shipScroll;
             Action importAction = ModImport.Available ? ImportModel : null;
-            var newShip = Act(left, T("mbNewShip", "+ New ship from .glb"), () => importAction?.Invoke(), "mbv-add");
+            var newShip = Act(left, T("mbNewShipModel", "+ New ship from .glb / .aem"), () => importAction?.Invoke(), "mbv-add");
             newShip.SetEnabled(ModImport.Available);
             Act(left, T("mbNewShipGame", "+ New ship on a game model"), () => PickGameShip(T("mbNewShipGameTitle", "New ship on a game model"), NewShipOnGameModel), "mbv-add");
             Act(left, T("mbNewShipKit", "+ New ship from a kit"), NewShipFromKit, "mbv-add");
@@ -164,17 +165,56 @@ namespace GoF2Remake.UI
             BuildSystemsPanels(leftGroups[(int)ModBuilder.Kind.Systems], rightGroups[(int)ModBuilder.Kind.Systems]);
 
             // ---- bottom ----
-            placeHint = Add(root, new Label { pickingMode = PickingMode.Ignore }, "mbv-place-hint");
+            placeHint = Add(root, new Label { pickingMode = PickingMode.Ignore }, "mbv-place-hint", SafeArea.EdgeClass);
             // The engines: the turntable ship's engine glow and exhaust as in flight, a slider from off through the throttle to
             // a boost at its right end.
-            var engines = uiEngines = Add(root, new VisualElement(), "mbv-engines", "mbv-panel");
-            var engineRow = Add(engines, new VisualElement(), "mbv-engines-row");
+            // The view panel (the user's request, 2026-10-22: tidier and toggleable): a header that folds it to one bar (kept for
+            // the next runs, PlayerPrefs mb_view_panel), then the engines and the camera as two sections.
+            // SafeArea.EdgeClass (with the hint and Test fly): inside the interface's band like the side panels beside it
+            // (Interface width 21:9 on a wider screen, the edge margin, a notch); without it the VIEW panel lay over the
+            // ships list and Test fly reached past the right panel.
+            var engines = uiEngines = Add(root, new VisualElement(), "mbv-engines", "mbv-panel", SafeArea.EdgeClass);
+            var head = Add(engines, new Button { focusable = false }, "mbv-view-head");
+            Add(head, new Label(T("mbView", "View").ToUpperInvariant()) { pickingMode = PickingMode.Ignore }, "mbv-view-head-title", "gof-semibold");
+            var fold = Add(head, new Label { pickingMode = PickingMode.Ignore }, "mbv-view-head-fold");
+            var body = Add(engines, new VisualElement(), "mbv-view-body");
+            void SetOpen(bool open)
+            {
+                body.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
+                engines.EnableInClassList("mbv-engines--closed", !open);
+                fold.text = open ? "↑" : "↓";
+                head.tooltip = open ? T("mbViewHide", "Hide the view panel") : T("mbViewShow", "Show the view panel");
+            }
+            head.clicked += () =>
+            {
+                sound(false);
+                bool open = body.style.display == DisplayStyle.None;
+                PlayerPrefs.SetInt("mb_view_panel", open ? 1 : 0);
+                SetOpen(open);
+            };
+            SetOpen(PlayerPrefs.GetInt("mb_view_panel", 1) == 1);
+            var engineRow = Add(body, new VisualElement(), "mbv-engines-row");
             Add(engineRow, new Label(T("mbEngines", "Engines").ToUpperInvariant()), "mbv-engines-title", "gof-semibold");
             engineValue = Add(engineRow, new Label(), "mbv-engines-value");
-            engineSlider = Add(engines, new Slider(0f, 1f) { value = 0f, focusable = false }, "mbv-engines-slider");
+            engineSlider = Add(body, new Slider(0f, 1f) { value = 0f, focusable = false }, "mbv-engines-slider");
             engineSlider.RegisterValueChangedCallback(e => { engineLevel = e.newValue; ApplyEngines(); });
             ApplyEngines();
-            testFly = Add(root, new Button(StartTestFlight) { text = T("mbTestFly", "Test fly").ToUpperInvariant() }, "mbv-testfly", "gof-semibold");
+            // The camera: the ship from the front, back, sides and above (ModelViewer.Angles, the AI tools' angles), centred.
+            Add(body, new Label(T("mbCamera", "Camera").ToUpperInvariant()), "mbv-engines-title", "mbv-views-title", "gof-semibold");
+            var views = Add(body, new VisualElement(), "mbv-views");
+            foreach (var (angle, key, english) in ViewButtons)
+            {
+                var b = Add(views, new Button(() => ShowAngle(angle)) { text = T(key, english).ToUpperInvariant(), focusable = false },
+                            "mbv-view-button", "gof-semibold");
+                b.RegisterCallback<PointerDownEvent>(_ => sound(true), TrickleDown.TrickleDown);
+            }
+            // Orbit: back around the ship's centre after a pan (the middle click's; touch had no way back from two fingers).
+            var orbit = Add(views, new Button(CentreOrbit) { text = T("mbViewOrbit", "Orbit").ToUpperInvariant(), focusable = false },
+                            "mbv-view-button", "gof-semibold");
+            orbit.tooltip = T("mbViewOrbitHint", "Back around the ship's centre after a pan");
+            orbit.RegisterCallback<PointerDownEvent>(_ => sound(true), TrickleDown.TrickleDown);
+            testFly = Add(root, new Button(StartTestFlight) { text = T("mbTestFly", "Test fly").ToUpperInvariant() }, "mbv-testfly", "gof-semibold",
+                          SafeArea.EdgeClass);
             testFly.RegisterCallback<PointerDownEvent>(_ => sound(true), TrickleDown.TrickleDown);
             FinishLayout();
             // Over everything while the panels fly in or out: nothing takes a click meanwhile.
@@ -359,7 +399,7 @@ namespace GoF2Remake.UI
                 shipList.Add(row);
             }
             if (Project.Ships.Count == 0)
-                Note(shipList, T("mbNoShips", "No ships yet. Add a new ship from a .glb model, or change one of the game's ships."));
+                Note(shipList, T("mbNoShips", "No ships yet. Add one from a .glb model, or change a game ship."));
         }
 
         static string ShipName(ProjectShip s, Database db) =>
@@ -395,7 +435,7 @@ namespace GoF2Remake.UI
             var s = Current;
             if (s == null) { Note(ship, T("mbPickShip", "Add a ship on the left to start.")); return; }
             JsonButton(ship, s.Json, () => { s.ReadMounts(); SaveNow(); RequestReload(false); RebuildShips(); BuildShipPage(); BuildHardpointsPage(); },
-                       T("mbJsonShipNote", "ships.json's fields: also materials (per mesh), throttleGlow / extraGlows, dealer, lounge, npcTurrets, priceDefault, engineGlowColor / Radius, available."));
+                       T("mbJsonShipNote", "Also in ships.json: materials, glows, dealer, lounge, npcTurrets, available."));
             var db = Database.Shared;
             var original = s.IsOverride ? db.Ship(s.OverrideIndex) : null;
             Heading(ship, s.IsOverride ? string.Format(T("mbChanges", "Changes {0}"), GameNames.Ship(s.OverrideIndex)) : T("mbNewShipSub", "New ship"));
@@ -423,6 +463,7 @@ namespace GoF2Remake.UI
                 Note(ship, string.Format(T("mbOriginalStats", "Original: {0} hull, {1} t, handling {2}, {3}."), original.armor, original.cargo,
                                          Mathf.RoundToInt(original.handling), ItemInfo.Credits(original.price)));
             BuildShipMore(s);
+            BuildShipIcon(s);
             if (s.IsKitShip) { BuildKitShipSection(s); return; }   // its look is the kit's parts, its height over the pad measured
 
             Heading(ship, T("mbModel", "Model"));
@@ -436,6 +477,7 @@ namespace GoF2Remake.UI
             if (ModImport.Available)
                 Act(mrow, hasModel ? T("mbReplaceModel", "Replace model…") : T("mbUseModel", "Use a .glb model…"), () => PickModel(s));
             Act(mrow, T("mbGameModel", "Game model…"), () => PickGameShip(T("mbGameModelTitle", "Use a game ship's model"), i => UseGameShipModel(s, i)));
+            if (hasModel) Act(mrow, T("mbOptimizeModel", "Optimize…"), () => OpenOptimize(s.Model.Replace('\\', '/')));
             // A new ship on a game model: textures of its own in the Skins kind (textures/ships/<id>/; the game's ship keeps its look).
             if (ModProject.OwnsSkinOf(s) && ModBuilder.IndexOf(s) is int ownIndex && ownIndex >= 0)
                 Act(mrow, T("mbOwnTextures", "Its own textures…"), () =>
@@ -476,7 +518,7 @@ namespace GoF2Remake.UI
                 TurnRow("mbYawAxis", "Turn (yaw)", () => s.ModelYaw, v => s.ModelYaw = v);
                 TurnRow("mbPitchAxis", "Tip (pitch)", () => s.ModelPitch, v => s.ModelPitch = v);
                 TurnRow("mbRollAxis", "Roll", () => s.ModelRoll, v => s.ModelRoll = v);
-                Note(ship, T("mbYawNote", "Turn the model until its nose points along the arrow on the floor and its top faces up."));
+                Note(ship, T("mbYawNote", "Turn the model until its nose follows the floor arrow and its top faces up."));
                 // The model's place on the ship's pivot (game units; the hardpoints stay where they are).
                 Add(ship, new Label(T("mbOffset", "Position (units from the pivot)").ToUpperInvariant()), "mbv-label");
                 var off = s.ModelOffset;
@@ -494,6 +536,7 @@ namespace GoF2Remake.UI
                 }
                 Act(nrow, T("mbCentreModel", "Centre on pivot"), () => CentreModel(s));
                 BuildTextures(s);
+                BuildAddParts(s);
             }
             if (!s.IsOverride && !gameModel)
             {
@@ -514,7 +557,7 @@ namespace GoF2Remake.UI
         {
             Heading(ship, T("mbTextures", "Textures"));
             if (!s.HullTexturesEditable) { Note(ship, T("mbTexturesManual", "This ship's materials are set by hand in ships.json.")); return; }
-            Note(ship, T("mbTexturesNote", "Only for a model without textures of its own (it shows white): image maps for the whole hull (PNG, JPG, TGA, BMP, DDS; stored as PNG)."));
+            Note(ship, T("mbTexturesNote", "Only for a model without textures (it shows white): maps for the whole hull."));
             foreach (var (role, english) in TextureRoles)
             {
                 string r = role;
@@ -528,7 +571,41 @@ namespace GoF2Remake.UI
                         RequestReload(false);
                         BuildShipPage();
                     }));
-                if (current != null) Act(row, "✕", () => { s.SetHullTexture(r, null); RequestReload(false); BuildShipPage(); }, "mbv-step");
+                if (current != null) Act(row, "×", () => { s.SetHullTexture(r, null); RequestReload(false); BuildShipPage(); }, "mbv-step");
+            }
+        }
+
+        /// <summary>The ship's glowing parts (ships.json "addParts", CustomAddPart): the original's additive layers beside the
+        /// hull, e.g. an original-game mod's lights and engine glows, made in the hull model's own frame and drawn with the
+        /// game's material for their role. Listed with a remove button; a new one picked as a .glb / .aem for each role.</summary>
+        void BuildAddParts(ProjectShip s)
+        {
+            Heading(ship, T("mbAddParts", "Glowing parts"));
+            Note(ship, T("mbAddPartsNote", "Lights and engine glows modelled beside the hull (in the same place and size), drawn like the game's own ships draw theirs."));
+            var parts = s.AddParts;
+            for (int i = 0; i < parts.Count; i++)
+            {
+                int index = i;
+                var (model, role, texture) = parts[i];
+                var row = Add(ship, new VisualElement(), "mbv-row");
+                string text = $"{PartRoleName(role)}: {System.IO.Path.GetFileName(model ?? "")}";
+                if (!string.IsNullOrEmpty(texture)) text += $" ({System.IO.Path.GetFileName(texture)})";
+                Add(row, new Label(text), "mbv-inline-label");
+                Act(row, "×", () => { s.RemovePart(index); RequestReload(false); BuildShipPage(); }, "mbv-step");
+            }
+            if (!ModImport.Available) return;
+            var arow = Add(ship, new VisualElement(), "mbv-row");
+            foreach (var role in CustomAddPart.Roles)
+            {
+                string r = role;
+                Act(arow, "+ " + PartRoleName(r), () => PickGlb(T("mbPickPart", "Choose the part's model"), path =>
+                {
+                    string id = s.IsOverride ? "ship_" + s.OverrideIndex : s.LocalId;
+                    s.AddPart(r, Project.AddModel(path, $"{id}_{r}"));
+                    RequestReload(false);
+                    BuildShipPage();
+                    Status(T("mbLoadingModel", "Loading the model…"), false);
+                }));
             }
         }
 
@@ -608,7 +685,7 @@ namespace GoF2Remake.UI
                 b.style.borderLeftColor = ModBuilderGizmo.TypeColours[t];
                 b.EnableInClassList("mbv-type-button--on", placing == type);
             }
-            Note(hardpoints, T("mbPointsHelp", "Drag a point or its arrows to move it (Ctrl snaps). Drag elsewhere to turn the view, wheel to zoom. Delete removes, M mirrors."));
+            Note(hardpoints, T("mbPointsHelp", "Drag a point or its arrows (Ctrl snaps). Drag elsewhere to turn, wheel to zoom. Delete removes, M mirrors."));
 
             for (int t = 0; t < 3; t++)
             {
@@ -638,7 +715,7 @@ namespace GoF2Remake.UI
                 hardpoints.Add(row);
             }
             if (s.Mounts.Count == 0) Note(hardpoints, T("mbNoPoints", "No hardpoints: pick a kind above, then click on the hull."));
-            if (s.IsKitShip) Note(hardpoints, T("mbKitShipPoints", "A customizable ship's hardpoints come from its kit's parts (Ship kits). These are only for a kind no part of a build has."));
+            if (s.IsKitShip) Note(hardpoints, T("mbKitShipPoints", "A kit ship's hardpoints come from its parts; these only cover kinds no part has."));
             BuildSelectedPoint();
         }
 
@@ -658,7 +735,7 @@ namespace GoF2Remake.UI
             px = Int(xyz, "X", m.position_engine[0], -200000, 200000, v => { m.position_engine[0] = v; OnMountEdited(type); });
             py = Int(xyz, "Y", m.position_engine[1], -200000, 200000, v => { m.position_engine[1] = v; OnMountEdited(type); });
             pz = Int(xyz, "Z", m.position_engine[2], -200000, 200000, v => { m.position_engine[2] = v; OnMountEdited(type); });
-            Note(selectedBox, T("mbXyzNote", "Game units from the ship's centre: X toward the pilot's left, Y up, Z forward (20 units = 1 m)."));
+            Note(selectedBox, T("mbXyzNote", "Game units from the centre: X left, Y up, Z forward (20 = 1 m)."));
             var acts = Add(selectedBox, new VisualElement(), "mbv-row");
             Act(acts, T("mbMirror", "Mirror"), Mirror);
             Act(acts, T("mbCentre", "Centre X"), () => { m.position_engine[0] = 0; OnMountEdited(type); RefreshPoints(); });
@@ -681,7 +758,7 @@ namespace GoF2Remake.UI
                     else Status(T("mbTurretNoHull", "No hull found at that point."), true);
                 });
                 var g = new Vector3(-up.x, up.y, up.z);
-                Note(selectedBox, string.Format(T("mbTurretFacesNote", "Facing {0:0.##}, {1:0.##}, {2:0.##} (X left, Y up, Z forward). Placing or dragging it over the hull turns it to the surface."), g.x, g.y, g.z));
+                Note(selectedBox, string.Format(T("mbTurretFacesNote", "Facing {0:0.##}, {1:0.##}, {2:0.##}. Dragging it over the hull turns it to the surface."), g.x, g.y, g.z));
             }
             if (type == 3)
             {
@@ -707,7 +784,7 @@ namespace GoF2Remake.UI
                     MarkDirty();
                 });
                 if (kind == ModBuilder.Kind.Ships && Current.IsOverride && string.IsNullOrEmpty(Current.Model))
-                    Note(selectedBox, T("mbEngineOriginal", "With the game's own model the flame is part of the model: only the exhaust particles move."));
+                    Note(selectedBox, T("mbEngineOriginal", "With the game's own model the flame is part of it: only the particles move."));
             }
         }
 
@@ -931,7 +1008,7 @@ namespace GoF2Remake.UI
             Project.SetLoadout(s, DefaultLoadout(Database.Shared, s));
             RequestReload(false);
             RebuildPages();
-            Status(T("mbLayoutDone", "Placed a first set of hardpoints. Move them onto the hull in Hardpoints."), false);
+            Status(T("mbLayoutDone", "Placed a first set of hardpoints; move them onto the hull."), false);
         }
 
         // ---- ships ---------------------------------------------------------------------------------------------------
@@ -942,6 +1019,7 @@ namespace GoF2Remake.UI
             string id = Project.ShipIdFor(name);
             string model = Project.AddModel(path, id);
             var s = Project.AddNewShip(id, Pretty(name) == "New" ? T("mbNewShipName", "New ship") : Pretty(name), model);
+            if (pickedAemLength > 0f) s.ModelLength = pickedAemLength;   // the game's own model: the size it had there
             ModBuilder.Ship = s;
             Project.LastShip = s.Ref;
             gizmo.Selected = -1;
@@ -955,7 +1033,8 @@ namespace GoF2Remake.UI
         {
             string baseName = s.IsOverride ? "ship_" + s.OverrideIndex : s.LocalId;
             s.Model = Project.AddModel(path, baseName);
-            if (s.IsOverride && s.ModelLength <= 0f) s.ModelLength = 1000f;
+            if (pickedAemLength > 0f) s.ModelLength = pickedAemLength;   // the game's own model: the size it had there
+            else if (s.IsOverride && s.ModelLength <= 0f) s.ModelLength = 1000f;
             RequestReload(false);
             BuildShipPage();
             Status(T("mbLoadingModel", "Loading the model…"), false);
@@ -1162,6 +1241,7 @@ namespace GoF2Remake.UI
         {
             // Exit pressed: the project is closed and the main menu is loading; nothing here is rebuilt any more.
             if (!ModBuilder.Active) return;
+            UpdateRemoveButtons();
             float dt = Time.unscaledDeltaTime * 1000f;
             bool flying = level.PlayerFlying;
             UpdateUiAnimation(flying);
@@ -1183,6 +1263,9 @@ namespace GoF2Remake.UI
                                                           T("mbType" + TypeNames[placing], TypeNames[placing]).ToLowerInvariant())
                            : PlaceHintOfKind();
             placeHint.style.display = placeHint.text.Length > 0 ? DisplayStyle.Flex : DisplayStyle.None;
+            // Amber only while a point is being placed (a mode to finish or cancel); a kind's standing tip is a quiet line
+            // sized to its text, which the amber bar across the map was too much for.
+            placeHint.EnableInClassList("mbv-place-hint--quiet", placing < 0);
             ReadKeys(dt);
             UpdateCamera(dt);
             UpdateLabels();
@@ -1203,7 +1286,7 @@ namespace GoF2Remake.UI
             float target = flying ? 0f : 1f;
             if (!uiStateTaken) { uiStateTaken = true; uiShown = target; ApplyUiAnimation(); return; }
             if (uiShown == target) return;
-            uiShown = Mathf.MoveTowards(uiShown, target, Time.unscaledDeltaTime * 1000f / UiAnimMs);
+            uiShown = GoF2Remake.Data.Settings.ReduceMotion ? target : Mathf.MoveTowards(uiShown, target, Time.unscaledDeltaTime * 1000f / UiAnimMs);   // "Reduce motion": at once
             ApplyUiAnimation();
         }
 
@@ -1270,7 +1353,7 @@ namespace GoF2Remake.UI
             if (boundTransform == null)
             {
                 gizmo.Bind(null, null);
-                Status(T("mbNoPreview", "The ship couldn't be built for the preview. Check its model, or reopen the project."), true);
+                Status(T("mbNoPreview", "The ship couldn't be built for the preview: check its model."), true);
                 ShowProblems();
                 return;
             }
@@ -1303,38 +1386,77 @@ namespace GoF2Remake.UI
             MaybeMakeIcon(Current, Session.ShipIndex);
         }
 
+        /// <summary>Whether the builder draws this ship's shop icon from its model: a new ship with a model file or a kit
+        /// (a game model has the game's icon, a changed game ship keeps its own).</summary>
+        static bool MakesIcon(ProjectShip s) => s != null && !s.IsOverride && !s.HasGameModel && (!string.IsNullOrEmpty(s.Model) || s.IsKitShip);
+
+        /// <summary>The Ship tab's shop icon: what it is now, and Recreate icon to draw it again from the model (also over an
+        /// icon the modder set by hand, which ships.json keeps until then; Undo puts it back).</summary>
+        void BuildShipIcon(ProjectShip s)
+        {
+            if (!MakesIcon(s)) return;
+            int index = ModBuilder.IndexOf(s);
+            Heading(ship, T("mbShopIcon", "Shop icon"));
+            var row = Add(ship, new VisualElement(), "mbv-row");
+            var image = Add(row, new VisualElement(), "mbv-ship-icon");
+            var tex = index >= 0 ? ItemInfo.ShipIcon(index) : null;
+            if (tex != null) image.style.backgroundImage = new StyleBackground(tex);
+            void Redraw()
+            {
+                if (index < 0 || ModBuilder.IndexOf(s) != Session.ShipIndex || !MaybeMakeIcon(s, index, true))
+                    Status(T("mbIconWait", "The icon can be drawn once the ship's model is on the turntable."), true);
+                else BuildShipPage();
+            }
+            Act(row, T("mbRecreateIcon", "Recreate icon"), Redraw);
+            // A model whose nose comes out elsewhere: the icon's own turn in quarter turns, drawn again at once.
+            Act(row, "−90°", () => { Project.SetIconTurn(s, Project.IconTurn(s) - 90); Redraw(); });
+            Act(row, "+90°", () => { Project.SetIconTurn(s, Project.IconTurn(s) + 90); Redraw(); });
+            int turn = Project.IconTurn(s);
+            if (turn != 0) Add(row, new Label($"{turn}°"), "mbv-inline-label");
+            var made = Project.GeneratedIcon(s);
+            Note(ship, !string.IsNullOrEmpty(s.Icon) && (made == null || made.Value.file != s.Icon)
+                ? T("mbIconOwn", "Your own icon: Recreate icon draws one from the model instead.")
+                : T("mbIconMade", "Drawn from the model, nose to the bottom left, whenever the model, its turn or its textures change."));
+        }
+
         /// <summary>A new ship's shop icon, rendered from its model once (ShipIconMaker) into icons/&lt;id&gt;.png: when it has
         /// none, or the builder's own no longer matches its look (another model file, a turn, other hull textures). An icon
-        /// the modder set by hand is left alone.</summary>
-        void MaybeMakeIcon(ProjectShip s, int index)
+        /// the modder set by hand is left alone, unless 'force' (Recreate icon) draws it again whatever it is. True when an
+        /// icon was drawn.</summary>
+        bool MaybeMakeIcon(ProjectShip s, int index, bool force = false)
         {
-            if (s == null || s.IsOverride || string.IsNullOrEmpty(s.Model) && !s.IsKitShip || s.HasGameModel || ModBuilder.IndexOf(s) != index) return;   // a game model has the game's icon
-            if (s.IsKitShip && kind == ModBuilder.Kind.Kits) return;   // a preview build, not the default the icon shows
+            if (!MakesIcon(s) || ModBuilder.IndexOf(s) != index) return false;
+            if (s.IsKitShip && kind == ModBuilder.Kind.Kits) return false;   // a preview build, not the default the icon shows
             var made = Project.GeneratedIcon(s);
-            if (!string.IsNullOrEmpty(s.Icon) && (made == null || made.Value.file != s.Icon)) return;   // the modder's own
             string key = IconKey(s);
-            if (made != null && made.Value.key == key && System.IO.File.Exists(System.IO.Path.Combine(Project.Folder, made.Value.file))) return;
+            if (!force)
+            {
+                if (!string.IsNullOrEmpty(s.Icon) && (made == null || made.Value.file != s.Icon)) return false;   // the modder's own
+                if (made != null && made.Value.key == key && System.IO.File.Exists(System.IO.Path.Combine(Project.Folder, made.Value.file))) return false;
+            }
             var db = Database.Shared;
             var entry = db.ShipAssembly(index);
-            if (entry == null || !ModShips.Built.Any(b => b.ship == index)) return;   // not built: the Phantom would stand in
-            var icon = ShipIconMaker.Make(ModShips.Template(entry.name));
-            if (icon == null) return;
+            if (entry == null || !ModShips.Built.Any(b => b.ship == index)) return false;   // not built: the Phantom would stand in
+            var icon = ShipIconMaker.Make(ModShips.Template(entry.name), Project.IconTurn(s));
+            if (icon == null) return false;
             ModBuilder.History?.Commit();   // the edits so far are their own step: the icon joins it, not a step of its own
             Project.SetGeneratedIcon(s, icon.EncodeToPNG(), key);
             Project.Save();
             ModBuilder.History?.Absorb();
             ModShips.SetIcon(index, icon);
             RebuildShips();
+            return true;
         }
 
-        /// <summary>What the icon is drawn from: the model file, its turn and the hull textures.</summary>
+        /// <summary>What the icon is drawn from: the model file, its turn and the hull textures. The leading version goes up
+        /// when ShipIconMaker draws differently, so the icons it drew before are drawn again (2: wide hulls no longer turned).</summary>
         string IconKey(ProjectShip s)
         {
             if (s.IsKitShip)
             {
                 // A kit ship: its default build, the kit's parts and their files.
                 var kit = Project.FindKit(s.Kit);
-                var sb = new System.Text.StringBuilder("kit|" + s.Kit + "|" + s.KitType + "|" + s.BuildText());
+                var sb = new System.Text.StringBuilder("kit2|" + Project.IconTurn(s) + "|" + s.Kit + "|" + s.KitType + "|" + s.BuildText());
                 if (kit != null)
                 {
                     kit.Flush();
@@ -1351,7 +1473,7 @@ namespace GoF2Remake.UI
             var file = new System.IO.FileInfo(System.IO.Path.Combine(Project.Folder, s.Model));
             string stamp = file.Exists ? file.Length + "@" + file.LastWriteTimeUtc.Ticks : "missing";
             var materials = s.ToJson()["materials"];
-            return $"1|{s.Model}|{stamp}|{s.ModelYaw}|{s.ModelPitch}|{s.ModelRoll}|{materials?.ToString(Newtonsoft.Json.Formatting.None)}";
+            return $"2|{Project.IconTurn(s)}|{s.Model}|{stamp}|{s.ModelYaw}|{s.ModelPitch}|{s.ModelRoll}|{materials?.ToString(Newtonsoft.Json.Formatting.None)}";
         }
 
         void ReadKeys(float dt)
@@ -1387,24 +1509,48 @@ namespace GoF2Remake.UI
             level.Inspect.Turn(d.x * 0.005f, d.y * 0.005f);
         }
 
+        // The view buttons: ModelViewer.Angles' name, the text's key and its English. No view from below: the orbit stays
+        // above the pad (HangarInspect), and "top" stops at its pitch limit, ~83 deg.
+        static readonly (string angle, string key, string english)[] ViewButtons =
+        {
+            ("front", "mbViewFront", "Front"), ("back", "mbViewBack", "Back"), ("left", "mbViewLeft", "Left"),
+            ("right", "mbViewRight", "Right"), ("top", "mbViewTop", "Top"),
+        };
+
+        /// <summary>The orbit camera looking at the ship from 'angle' (its own frame), the distance kept, the pan centred.</summary>
+        void ShowAngle(string angle)
+        {
+            if (boundTransform == null || !level.Inspect.Active) return;
+            var from = ModelViewer.Angles.First(a => a.name == angle).from;
+            // Top: from a little behind, so the orbit's turn puts the nose at the top of the screen (straight down left the
+            // turn to whatever the overhead direction gave: the ship lay at an angle).
+            if (angle == "top") from = new Vector3(0f, 1f, -0.1f);
+            pendingTurn = fling = Vector2.zero;
+            level.Inspect.ResetPan();
+            level.Inspect.SetView(boundTransform.TransformDirection(from.normalized), 0f);
+        }
+
+        /// <summary>The orbit back around the ship's centre (the pan undone), the angle and distance kept.</summary>
+        void CentreOrbit()
+        {
+            if (!level.Inspect.Active) return;
+            pendingTurn = fling = Vector2.zero;
+            level.Inspect.ResetPan();
+        }
+
         void UpdateCamera(float dt)
         {
             if (!InHangar || !ShipKind(kind)) return;
             if (!level.Inspect.Active && boundTransform != null && !level.PlayerFlying) level.BeginInspect(0.55f);
-            var ts = Touchscreen.current;
-            int down = 0;
-            if (ts != null) foreach (var t in ts.touches) if (t.press.isPressed) down++;
-            if (down >= 2)
+            // Touch: two fingers pinch to zoom and move the view (the middle button's pan; TwoFingerTouch).
+            if (touch2.Read(out float zoom, out var pan))
             {
-                Vector2 a = Vector2.zero, b = Vector2.zero; int n = 0;
-                foreach (var t in ts.touches) if (t.press.isPressed) { if (n == 0) a = t.position.ReadValue(); else if (n == 1) b = t.position.ReadValue(); n++; }
-                float span = (a - b).magnitude;
-                if (pinch > 1f && span > 1f) level.Inspect.Zoom(pinch / span);
-                pinch = span;
+                if (zoom != 1f) level.Inspect.Zoom(zoom);
+                if (pan != Vector2.zero) level.Inspect.Pan(pan);
                 if (drag == Drag.Camera) drag = Drag.None;
+                pendingTurn = fling = Vector2.zero;
                 return;
             }
-            pinch = -1f;
             if (pendingTurn != Vector2.zero)
             {
                 var step = pendingTurn * (1f - Mathf.Exp(-dt / OrbitEaseMs));

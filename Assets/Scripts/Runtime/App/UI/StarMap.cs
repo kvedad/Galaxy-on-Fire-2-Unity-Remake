@@ -183,6 +183,11 @@ namespace GoF2Remake.UI
         readonly List<GalaxyMap.Planet> planets = new List<GalaxyMap.Planet>();
         readonly List<Transform> planetObjects = new List<Transform>(), orbitObjects = new List<Transform>();
         readonly List<Vector3> planetScales = new List<Vector3>();
+        readonly List<Transform> planetDiscs = new List<Transform>();   // remake mods: a station's planetTexture facing the camera
+        static readonly Dictionary<string, Material> modPlanetMaterials = new Dictionary<string, Material>();
+        static int modPlanetRevision = -1;
+        static readonly Dictionary<float, Mesh> wrappedSpheres = new Dictionary<float, Mesh>();
+        static Mesh discQuad;
         readonly List<Camera> disabledCameras = new List<Camera>();
         readonly List<Light> disabledLights = new List<Light>();
         UnityEngine.Rendering.AmbientMode savedAmbientMode;
@@ -219,6 +224,7 @@ namespace GoF2Remake.UI
         VisualElement root, touch, labels, systemHeader, keyBox, hints, dialog, mapSafe, sideButtons;
         /// <summary>The screen size and safe area the map's corners were last kept clear for (SafeArea).</summary>
         Rect lastSafeArea;
+        int lastLayout = -1;
         Vector2Int lastSafeScreen;
         Label energyLine;
         Button backButton, keyButton, zoomButton, voidButton, dialogYes, dialogNo;
@@ -289,10 +295,7 @@ namespace GoF2Remake.UI
                 baseSortingOrder = panelRenderer.panelSettings.sortingOrder;   // the shared asset's, before the copy takes its place
                 runtimePanel = Instantiate(panelRenderer.panelSettings);
                 runtimePanel.sortingOrder = panelRenderer.panelSettings.sortingOrder + 20;   // above the HUD / station menu
-                runtimePanel.referenceResolution = new Vector2Int(1920, 1080);
-                runtimePanel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-                runtimePanel.match = 1f;
-                panelRenderer.panelSettings = runtimePanel;
+                panelRenderer.panelSettings = runtimePanel;   // scaled by UiLayout in UpdateSafeArea
             }
             InputMode.Changed += ApplyInputMode;
         }
@@ -324,6 +327,7 @@ namespace GoF2Remake.UI
         void OnUIReload(PanelRenderer renderer, VisualElement rootElement, int version)
         {
             root = rootElement;
+            ScrollBars.Watch(rootElement);   // Modified: the hangar's scrollbar on every scroll view that needs one
             root.style.flexGrow = 1;
             root.pickingMode = PickingMode.Ignore;
             touch = root.Q("mapTouch");
@@ -345,6 +349,29 @@ namespace GoF2Remake.UI
             dialogYes = root.Q<Button>("dialogYes");
             dialogNo = root.Q<Button>("dialogNo");
             root.Q<Label>("mapTitle").text = T(177).ToUpperInvariant();
+            // Modified: opened from a station's Map: "STATION | MAP" (SetStationTitle), as the station's views.
+            var mapTitleLabel = root.Q<Label>("mapTitle");
+            if (mapTitleLabel != null && mapTitleLabel.parent.Q<Label>("mapViewTitle") == null)
+            {
+                var view = new Label { name = "mapViewTitle", pickingMode = PickingMode.Ignore };
+                view.AddToClassList("map-view-title");
+                mapTitleLabel.parent.Insert(mapTitleLabel.parent.IndexOf(mapTitleLabel) + 1, view);
+            }
+            RefreshStationTitle();
+            // Modified: the map's help (the station's first-visit hint) behind a "?" at the header's right, the size of
+            // the title (OptionInfo: 1 s of the mouse on it, or a press). Only while there is one (SetHelp). The key hints are
+            // the boxes along the bottom (Rework, docs/UI-DESIGN.md "Button prompts": they were an "i" here).
+            var header = root.Q(className: "map-header");
+            if (header != null && header.Q(name: "mapHelp") == null)
+            {
+                var help = OptionInfo.Icon(() => HelpText);
+                help.name = "mapHelp";
+                help.AddToClassList("map-help");
+                help.style.position = Position.Relative;
+                help.style.width = help.style.height = 40f;
+                header.Add(help);
+            }
+            RefreshHelp();
             backButton.text = Localization.Extra("hudBack", "BACK");
             keyButton.text = T(400).ToUpperInvariant();
             voidButton.text = VoidButtonText;
@@ -384,13 +411,14 @@ namespace GoF2Remake.UI
                 if (currentSystem >= 0 && currentSystem < visible.Length) visible[currentSystem] = true;
                 if (builder != null)
                 {
-                    // The Mod Builder's map: every system, under the builder's panels, without the map's own header / footer.
-                    for (int i = 0; i < visible.Length; i++) visible[i] = true;
+                    // The Mod Builder's map: every system, under the builder's panels, without the map's own header / footer. Not
+                    // the placeholders of mods that are off ("?", far out at -1000 on every axis): the map zoomed out to frame it.
+                    for (int i = 0; i < visible.Length; i++) visible[i] = !Modding.ModWorld.IsMissingSystem(i);
                     // Under the station UI's panel (the shared asset's order): panelSettings is the runtime copy by now, 20 above
                     // it, so "its order - 1" kept the map over the builder's panels.
                     if (runtimePanel != null) runtimePanel.sortingOrder = baseSortingOrder - 1;
                     root.AddToClassList("map-builder");
-                    foreach (var n in new[] { "mapTitle", "backButton", "keyButton", "zoomButton", "voidButton", "hints" })
+                    foreach (var n in new[] { "mapTitle", "mapKeys", "mapHelp", "backButton", "keyButton", "zoomButton", "voidButton", "hints" })
                         if (root.Q(n) is VisualElement el) el.style.display = DisplayStyle.None;
                 }
                 // askVoid: the original asks 422 before the map shows; remake: the map opens and the footer's Jump to the Void
@@ -718,7 +746,8 @@ namespace GoF2Remake.UI
             foreach (var p in planets)
             {
                 var planet = Spawn($"galaxymap_planet_{p.textureIndex:000}", systemRoot.transform) ?? Spawn("galaxymap_planet_000", systemRoot.transform);
-                if (planet != null && World.SkyLayers.InPlanetRingOrbit(p.station)) AddPlanetRing(planet);
+                if (planet != null && (World.SkyLayers.InPlanetRingOrbit(p.station) || Modding.ModWorld.MapRing(p.station))) AddPlanetRing(planet);
+                if (planet != null) ApplyModPlanet(planet, p.station);
                 if (planet != null) LightBySun(planet);
                 planetObjects.Add(planet != null ? planet.transform : null);
                 planetScales.Add(planet != null ? planet.transform.localScale / 128f : Vector3.zero);
@@ -790,6 +819,7 @@ namespace GoF2Remake.UI
             planetObjects.Clear();
             orbitObjects.Clear();
             planetScales.Clear();
+            planetDiscs.Clear();
             foreach (var it in planetItems) it.root.RemoveFromHierarchy();
             planetItems.Clear();
         }
@@ -827,6 +857,142 @@ namespace GoF2Remake.UI
                     orbit.localRotation = ModelRotation(rc * Quaternion.AngleAxis(planets[k].orbitYaw * Mathf.Rad2Deg, Vector3.up));
                 }
             }
+            FaceDiscs();
+        }
+
+        /// <summary>Remake mods: the planetTexture discs face the map's camera (like the planet billboards in orbit).</summary>
+        void FaceDiscs()
+        {
+            if (cam == null) return;
+            foreach (var d in planetDiscs)
+                if (d != null) d.rotation = Quaternion.LookRotation(d.position - cam.transform.position, cam.transform.up);
+        }
+
+        /// <summary>Remake mods: a station's own planet on the map. "mapTexture": the image wrapped round the map's sphere (a
+        /// sphere with 0..1 UVs takes the place of the game's mesh, whose UVs are one cell of the planet atlas; still lit by
+        /// GoF2/MapPlanet). Else "planetTexture": the orbit's disc, facing the camera, unlit like the orbit's billboard. Else
+        /// the game's planet for its "planet" number.</summary>
+        void ApplyModPlanet(GameObject planet, int station)
+        {
+            if (modPlanetRevision != Modding.ModManager.Revision)
+            {
+                foreach (var m in modPlanetMaterials.Values) if (m != null) Destroy(m);
+                modPlanetMaterials.Clear();
+                modPlanetRevision = Modding.ModManager.Revision;
+            }
+            string wrap = Modding.ModWorld.MapTexture(station), disc = wrap == null ? Modding.ModWorld.PlanetTexture(station) : null;
+            if (wrap == null && disc == null) return;
+            var hull = new List<MeshRenderer>();
+            foreach (var r in planet.GetComponentsInChildren<MeshRenderer>(true))
+                if (r.name.StartsWith("map_planet_") && !r.name.StartsWith("map_planet_ring")) hull.Add(r);
+            if (hull.Count == 0) return;
+            if (wrap != null)
+            {
+                var mat = ModPlanetMaterial(wrap, false, hull[0].sharedMaterial);
+                if (mat == null) return;
+                foreach (var r in hull)
+                {
+                    var mf = r.GetComponent<MeshFilter>();
+                    if (mf == null || mf.sharedMesh == null) continue;
+                    mf.sharedMesh = WrappedSphere(mf.sharedMesh.bounds.extents.x);
+                    r.sharedMaterial = mat;
+                }
+                return;
+            }
+            var discMat = ModPlanetMaterial(disc, true, null);
+            if (discMat == null) return;
+            var mesh = hull[0].GetComponent<MeshFilter>()?.sharedMesh;
+            float radius = mesh != null ? mesh.bounds.extents.x : 1600f;
+            foreach (var r in hull) r.enabled = false;
+            var go = new GameObject("map_planet_disc") { layer = Layer };
+            go.transform.SetParent(planet.transform, false);
+            go.transform.localScale = Vector3.one * radius * 2.1f;   // the orbit images keep a little room round the disc
+            go.AddComponent<MeshFilter>().sharedMesh = DiscQuad();
+            go.AddComponent<MeshRenderer>().sharedMaterial = discMat;
+            planetDiscs.Add(go.transform);
+        }
+
+        /// <summary>A mod planet's map material: the wrapped one a copy of the game's map planet material (LightBySun makes it
+        /// GoF2/MapPlanet), the disc one a copy of the mods' alpha-blended fx material.</summary>
+        static Material ModPlanetMaterial(string name, bool disc, Material planetSource)
+        {
+            string key = (disc ? "disc|" : "wrap|") + name;
+            if (modPlanetMaterials.TryGetValue(key, out var m)) return m;
+            var tex = Modding.ModBackdrop.Texture(name);
+            Material made = null;
+            if (tex != null && disc)
+            {
+                var template = Modding.ModAssets.Get()?.fxAlpha;
+                if (template != null)
+                {
+                    made = new Material(template) { name = "map disc " + name };
+                    made.SetTexture("_MainTex", tex);
+                    made.SetTextureScale("_MainTex", Vector2.one);
+                    made.SetTextureOffset("_MainTex", Vector2.zero);
+                    made.SetColor("_Color", Color.white);
+                }
+            }
+            else if (tex != null && planetSource != null)
+            {
+                tex.wrapModeU = TextureWrapMode.Repeat;
+                made = new Material(planetSource) { name = "map planet " + name };
+                if (made.HasProperty("_BaseMap")) { made.SetTexture("_BaseMap", tex); made.SetTextureScale("_BaseMap", Vector2.one); made.SetTextureOffset("_BaseMap", Vector2.zero); }
+                if (made.HasProperty("_BaseColor")) made.SetColor("_BaseColor", Color.white);
+            }
+            return modPlanetMaterials[key] = made;
+        }
+
+        /// <summary>A UV sphere of 'radius' with longitude on u (0..1 once round the Y axis) and latitude on v (0 at the
+        /// bottom pole), for an equirectangular image.</summary>
+        static Mesh WrappedSphere(float radius)
+        {
+            if (wrappedSpheres.TryGetValue(radius, out var m) && m != null) return m;
+            const int seg = 48, rings = 24;
+            var v = new List<Vector3>();
+            var n = new List<Vector3>();
+            var uv = new List<Vector2>();
+            for (int y = 0; y <= rings; y++)
+            {
+                float lat = Mathf.PI * (y / (float)rings - 0.5f);
+                for (int x = 0; x <= seg; x++)
+                {
+                    float lon = 2f * Mathf.PI * x / seg;
+                    var dir = new Vector3(Mathf.Cos(lat) * Mathf.Sin(lon), Mathf.Sin(lat), Mathf.Cos(lat) * Mathf.Cos(lon));
+                    v.Add(dir * radius);
+                    n.Add(dir);
+                    uv.Add(new Vector2(x / (float)seg, y / (float)rings));
+                }
+            }
+            var tris = new List<int>();
+            for (int y = 0; y < rings; y++)
+                for (int x = 0; x < seg; x++)
+                {
+                    int a = y * (seg + 1) + x, b = a + seg + 1;
+                    tris.Add(a); tris.Add(b); tris.Add(a + 1);
+                    tris.Add(a + 1); tris.Add(b); tris.Add(b + 1);
+                }
+            m = new Mesh { name = "map planet (wrapped)" };
+            m.SetVertices(v);
+            m.SetNormals(n);
+            m.SetUVs(0, uv);
+            m.SetTriangles(tris, 0);
+            m.RecalculateTangents();
+            m.RecalculateBounds();
+            return wrappedSpheres[radius] = m;
+        }
+
+        /// <summary>A unit quad in the XY plane, seen from -Z (FaceDiscs turns its +Z away from the camera).</summary>
+        static Mesh DiscQuad()
+        {
+            if (discQuad != null) return discQuad;
+            discQuad = new Mesh { name = "map planet disc" };
+            discQuad.SetVertices(new List<Vector3> { new Vector3(-0.5f, -0.5f, 0f), new Vector3(0.5f, -0.5f, 0f), new Vector3(-0.5f, 0.5f, 0f), new Vector3(0.5f, 0.5f, 0f) });
+            discQuad.SetUVs(0, new List<Vector2> { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 1f), new Vector2(1f, 1f) });
+            discQuad.SetColors(new List<Color> { Color.white, Color.white, Color.white, Color.white });
+            discQuad.SetTriangles(new[] { 0, 1, 2, 1, 3, 2 }, 0);   // facing -Z
+            discQuad.RecalculateNormals();
+            discQuad.RecalculateBounds();
+            return discQuad;
         }
 
         // ---- overlay ---------------------------------------------------------------------------------------
@@ -835,6 +1001,8 @@ namespace GoF2Remake.UI
         {
             var it = new Item { root = new VisualElement { pickingMode = PickingMode.Ignore } };
             it.root.AddToClassList("map-item");
+            // Modified: unseen until first placed (Place): for a frame every name box sat at the top left corner.
+            it.root.style.visibility = Visibility.Hidden;
             it.pulse = Img(it.root, "map-pulse", Tex("map_pulse"));
             it.ring = Img(it.root, "map-ring", Tex("map_ring"));
             var row = new VisualElement { pickingMode = PickingMode.Ignore };
@@ -998,6 +1166,7 @@ namespace GoF2Remake.UI
         {
             e.style.left = p.x;
             e.style.top = p.y;
+            e.style.visibility = StyleKeyword.Null;   // Modified: shown once placed (MakeItem)
         }
 
         void UpdateOverlay()
@@ -1363,6 +1532,54 @@ namespace GoF2Remake.UI
 
         string pendingHint;
 
+        string helpText;
+
+        string stationTitle;
+
+        /// <summary>Modified: the station's title in the header with "| MAP" after it (null: the map's own title).</summary>
+        public void SetStationTitle(string title)
+        {
+            stationTitle = string.IsNullOrEmpty(title) ? null : title;
+            RefreshStationTitle();
+        }
+
+        void RefreshStationTitle()
+        {
+            var title = root?.Q<Label>("mapTitle");
+            var view = root?.Q<Label>("mapViewTitle");
+            if (title == null || view == null) return;
+            bool station = stationTitle != null && builder == null;
+            title.text = station ? stationTitle : T(177).ToUpperInvariant();
+            view.text = station ? T(177).ToUpperInvariant() : "";
+            view.style.display = station ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        /// <summary>Modified: the help text the header's "?" shows (null: no "?").</summary>
+        /// <summary>Modified: what the "?" shows: the text SetHelp gave, else the map's own help (the station's first-visit
+        /// hint 628 / 631, its key variant off touch), so the flight's map (K, the Khador Drive) has it too.</summary>
+        string HelpText => helpText ?? DefaultHelp;
+
+        static string DefaultHelp
+        {
+            get
+            {
+                int text = Session.WorldIndex > 15 ? 628 : 631;
+                return World.FlightHints.KeyTokens(Localization.Get(InputMode.Current != InputKind.Touch ? text + 1 : text));
+            }
+        }
+
+        public void SetHelp(string text)
+        {
+            helpText = string.IsNullOrEmpty(text) ? null : text;
+            RefreshHelp();
+        }
+
+        void RefreshHelp()
+        {
+            var help = root?.Q(name: "mapHelp");
+            if (help != null) help.style.display = HelpText != null ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
         /// <param name="noFirst">No has the keyboard / controller focus when it opens (else Yes).</param>
         void ShowDialog(string text, Action onYes, Action onNo, bool info = false, bool noFirst = false)
         {
@@ -1556,9 +1773,11 @@ namespace GoF2Remake.UI
             if (mapSafe == null) return;
             var rt = runtimePanel != null ? runtimePanel.targetTexture : null;
             var size = rt != null ? new Vector2Int(rt.width, rt.height) : new Vector2Int(Screen.width, Screen.height);
-            if (size == lastSafeScreen && Screen.safeArea == lastSafeArea) return;
+            if (size == lastSafeScreen && Screen.safeArea == lastSafeArea && lastLayout == UiLayout.Revision) return;
             lastSafeScreen = size;
             lastSafeArea = Screen.safeArea;
+            lastLayout = UiLayout.Revision;
+            UiLayout.Configure(runtimePanel, root, Mathf.Max(1, size.x), Mathf.Max(1, size.y));   // docs/UI-DESIGN.md "Scaling"
             SafeArea.Apply(root, mapSafe, Mathf.Max(1, size.x), Mathf.Max(1, size.y), rt != null, SafeArea.Mode.Position);
         }
 
@@ -1812,8 +2031,32 @@ namespace GoF2Remake.UI
 
         void BuildHints(InputKind kind)
         {
+            UpdateMapButtons();
             if (hints == null) return;
             hints.Clear();
+            AddHints(hints, kind);
+        }
+
+        /// <summary>Modified: the map's own buttons, not its hints: what the Full map / Close up button says and which of it,
+        /// the Key button and the Jump to the Void button show. Split out of BuildHints, which the "i" window used to re-run
+        /// only to collect the hint rows.</summary>
+        void UpdateMapButtons()
+        {
+            bool sys = systemView || zoomDir > 0;
+            if (zoomButton != null)
+            {
+                zoomButton.text = overview ? Localization.Extra("mapCloseUp", "CLOSE UP") : Localization.Extra("mapFullMap", "FULL MAP");
+                bool zoomShown = !sys && !revealing && builder == null;   // the builder's map: none of the map's own buttons
+                zoomButton.style.display = zoomShown ? DisplayStyle.Flex : DisplayStyle.None;
+                // Both push to the right edge: the Key button sits right after the Full map button while that shows.
+                keyButton.style.marginLeft = zoomShown ? new StyleLength(0f) : new StyleLength(StyleKeyword.Null);
+            }
+            if (voidButton != null) voidButton.style.display = askVoid && builder == null && !revealing ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        /// <summary>Modified: the hint rows for 'kind' into 'into' (the hint bar's box, or the "i" window's).</summary>
+        void AddHints(VisualElement into, InputKind kind)
+        {
             string X(string key, string english) => Localization.Extra(key, english);
             string select = X("hudSelect", "SELECT"), back = X("hudBack", "BACK"), confirm = X("hudConfirm", "CONFIRM");
             string zoom = X("mapZoomIn", "ZOOM IN"), moveText = X("mapMove", "MOVE"), turn = X("mapTurn", "TURN");
@@ -1822,62 +2065,57 @@ namespace GoF2Remake.UI
             {
                 if (kind == InputKind.KeyboardMouse)
                 {
-                    if (!dialogInfo) Hint(select, InputGlyph.Key("←"), InputGlyph.Key("→"));
-                    Hint(confirm, InputGlyph.Key("ENTER", true));
-                    Hint(back, InputGlyph.Key("ESC"));
+                    if (!dialogInfo) Hint(into, select, InputGlyph.Key("←"), InputGlyph.Key("→"));
+                    Hint(into, confirm, InputGlyph.Key("ENTER", true));
+                    Hint(into, back, InputGlyph.Key("ESC"));
                 }
                 else if (kind == InputKind.Gamepad)
                 {
-                    if (!dialogInfo) Hint(select, InputGlyph.Pad(PadButton.DPad));
-                    Hint(confirm, InputGlyph.Pad(PadButton.A));
-                    Hint(back, InputGlyph.Pad(PadButton.B));
+                    if (!dialogInfo) Hint(into, select, InputGlyph.Pad(PadButton.DPad));
+                    Hint(into, confirm, InputGlyph.Pad(PadButton.A));
+                    Hint(into, back, InputGlyph.Pad(PadButton.B));
                 }
                 return;
             }
             bool sys = systemView || zoomDir > 0;
             string fullMap = overview ? X("mapCloseUp", "CLOSE UP") : X("mapFullMap", "FULL MAP");
-            if (zoomButton != null)
-            {
-                zoomButton.text = fullMap;
-                bool zoomShown = !sys && !revealing && builder == null;   // the builder's map: none of the map's own buttons
-                zoomButton.style.display = zoomShown ? DisplayStyle.Flex : DisplayStyle.None;
-                // Both push to the right edge: the Key button sits right after the Full map button while that shows.
-                keyButton.style.marginLeft = zoomShown ? new StyleLength(0f) : new StyleLength(StyleKeyword.Null);
-            }
-            if (voidButton != null) voidButton.style.display = askVoid && builder == null && !revealing ? DisplayStyle.Flex : DisplayStyle.None;
             string toVoid = VoidButtonText;
             if (kind == InputKind.KeyboardMouse)
             {
-                Hint(select, InputGlyph.Key(sys ? "A" : "←"), InputGlyph.Key(sys ? "D" : "→"));
-                if (!overview) Hint(sys ? turn : moveText, InputGlyph.Key("W"), InputGlyph.Key("S"));
-                Hint(sys ? confirm : zoom, InputGlyph.Key("ENTER", true));
-                if (!sys) Hint(fullMap, InputGlyph.Key("Q"));
-                if (askVoid) Hint(toVoid, InputGlyph.Key("V"));
-                Hint(key, InputGlyph.Key("K"));
-                Hint(back, InputGlyph.Key("ESC"));
+                Hint(into, select, InputGlyph.Key(sys ? "A" : "←"), InputGlyph.Key(sys ? "D" : "→"));
+                if (!overview) Hint(into, sys ? turn : moveText, InputGlyph.Key("W"), InputGlyph.Key("S"));
+                Hint(into, sys ? confirm : zoom, InputGlyph.Key("ENTER", true));
+                if (!sys) Hint(into, fullMap, InputGlyph.Key("Q"));
+                if (askVoid) Hint(into, toVoid, InputGlyph.Key("V"));
+                Hint(into, key, InputGlyph.Key("K"));
+                Hint(into, back, InputGlyph.Key("ESC"));
             }
             else if (kind == InputKind.Gamepad)
             {
-                Hint(select, InputGlyph.Pad(PadButton.DPad));
-                if (!overview) Hint(sys ? turn : moveText, InputGlyph.Pad(PadButton.LeftStick));
-                Hint(sys ? confirm : zoom, InputGlyph.Pad(PadButton.A));
-                if (!sys) Hint(fullMap, InputGlyph.Pad(PadButton.X));
-                if (askVoid) Hint(toVoid, InputGlyph.Pad(PadButton.RightBumper));
-                Hint(key, InputGlyph.Pad(PadButton.Y));
-                Hint(back, InputGlyph.Pad(PadButton.B));
+                Hint(into, select, InputGlyph.Pad(PadButton.DPad));
+                if (!overview) Hint(into, sys ? turn : moveText, InputGlyph.Pad(PadButton.LeftStick));
+                Hint(into, sys ? confirm : zoom, InputGlyph.Pad(PadButton.A));
+                if (!sys) Hint(into, fullMap, InputGlyph.Pad(PadButton.X));
+                if (askVoid) Hint(into, toVoid, InputGlyph.Pad(PadButton.RightBumper));
+                Hint(into, key, InputGlyph.Pad(PadButton.Y));
+                Hint(into, back, InputGlyph.Pad(PadButton.B));
             }
         }
 
-        void Hint(string label, params VisualElement[] glyphs)
+        static void Hint(VisualElement into, string label, params VisualElement[] glyphs)
         {
             var h = new VisualElement { pickingMode = PickingMode.Ignore };
             h.AddToClassList("hint");
-            foreach (var g in glyphs) h.Add(g);
+            // Modified: the glyphs in a row of their own (hint-keys) and the label under them, as in the hangar window.
+            var keys = new VisualElement { pickingMode = PickingMode.Ignore };
+            keys.AddToClassList("hint-keys");
+            foreach (var g in glyphs) keys.Add(g);
+            h.Add(keys);
             var l = new Label(label) { pickingMode = PickingMode.Ignore };
             l.AddToClassList("hint-label");
             l.AddToClassList("gof-semibold");
             h.Add(l);
-            hints.Add(h);
+            into.Add(h);
         }
 
         void Play(AudioClip clip)

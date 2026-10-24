@@ -4,7 +4,8 @@
 // the tabs Sound / Graphics / Controls / Gameplay / Language (only those with rows), one scrolling page of OptionsCatalog
 // rows per tab, then Back and Default settings (497) under them; Default settings asks first, in the footer's place,
 // whether to reset only the shown tab or every tab (or Cancel). Every option of the catalog is here, the in-game ones
-// (OptionDef.inGameOnly) too; the text language stays in the main menu (the HUDs would need rebuilding).
+// (OptionDef.inGameOnly) too, the text language among them: the station menu and the flight HUD re-label themselves on
+// Localization.Changed, so it applies without leaving the game (the main menu keeps its own language buttons).
 // The host drives the keys / controller: NavItems is what Up / Down walks (the tab row, the active tab's rows, Back,
 // Default settings); Q / E and LB / RB switch tabs (StepTab). Rows are focusable for a host that uses the panel's focus
 // (the station); the pause menu moves a highlight instead (Select).
@@ -19,7 +20,7 @@ namespace GoF2Remake.UI
 {
     public sealed class OptionsView
     {
-        static readonly OptionPage[] PageOrder = { OptionPage.Sound, OptionPage.Graphics, OptionPage.Controls, OptionPage.Bindings, OptionPage.Gameplay, OptionPage.Language };
+        static readonly OptionPage[] PageOrder = { OptionPage.Sound, OptionPage.Graphics, OptionPage.Controls, OptionPage.Bindings, OptionPage.Gameplay, OptionPage.Accessibility, OptionPage.Language };
 
         sealed class Tab
         {
@@ -117,6 +118,7 @@ namespace GoF2Remake.UI
             BackButton.AddToClassList("menu-button");
             BackButton.AddToClassList("back-button");
             BackButton.AddToClassList("gof-semibold");
+            InputGlyph.PadPrompt(BackButton, PadButton.B);   // B for a controller (docs/UI-DESIGN.md "Button prompts")
             footer.Add(BackButton);
             DefaultsButton = new Button(OpenResetPrompt) { text = T(497), focusable = focusableRows };
             DefaultsButton.AddToClassList("menu-button");
@@ -129,7 +131,7 @@ namespace GoF2Remake.UI
             // Cancel (Esc / B too), so a stray press resets nothing.
             prompt = new VisualElement();
             prompt.AddToClassList("options-reset-prompt");
-            var question = new Label(OptionsCatalog.ResetQuestion) { pickingMode = PickingMode.Ignore };
+            question = new Label(OptionsCatalog.ResetQuestion) { pickingMode = PickingMode.Ignore };
             question.AddToClassList("options-reset-question");
             prompt.Add(question);
             CancelButton = PromptButton(Localization.Get(425).ToUpperInvariant(), () => CloseResetPrompt());   // Cancel
@@ -138,11 +140,37 @@ namespace GoF2Remake.UI
             ResetAllButton.AddToClassList("options-reset-all");
             prompt.style.display = DisplayStyle.None;
             footer.Add(prompt);
+            // Rework: the page's keys (select, change a value, switch tab, confirm, back) as a prompt row under the footer
+            // (docs/UI-DESIGN.md "Button prompts"; it was an "i" at the tab row's end).
+            prompts = MenuKeys.Bar(MenuKeys.Rows.Select | MenuKeys.Rows.Change | MenuKeys.Rows.Tabs | MenuKeys.Rows.Confirm | MenuKeys.Rows.Back);
+            prompts.AddToClassList("prompt-bar--row");
+            Root.Add(prompts);
 
             SelectTab(0, false);
+            // Modified: the language row (OptionsCatalog "language") changes the table while this page is open: re-label it
+            // then. Only while it is on a panel, so the views the menus drop on leaving the page don't stay subscribed.
+            Root.RegisterCallback<AttachToPanelEvent>(_ => Localization.Changed += RefreshTexts);
+            Root.RegisterCallback<DetachFromPanelEvent>(_ => Localization.Changed -= RefreshTexts);
+        }
+
+        /// <summary>Modified: every text of the page from the table loaded now: the title, the tabs, the footer and the
+        /// defaults prompt, and each row (OptionControl.Refresh re-reads its label, values and description).</summary>
+        public void RefreshTexts()
+        {
+            title.text = T(31);
+            foreach (var tab in tabs) tab.button.text = OptionsCatalog.PageTitle(tab.page).ToUpperInvariant();
+            InputGlyph.SetText(BackButton, "‹  " + T(170));
+            DefaultsButton.text = T(497);
+            question.text = OptionsCatalog.ResetQuestion;
+            CancelButton.text = Localization.Get(425).ToUpperInvariant();
+            ResetTabButton.text = OptionsCatalog.ResetTabLabel(tabs[TabIndex].page).ToUpperInvariant();
+            ResetAllButton.text = OptionsCatalog.ResetAllLabel.ToUpperInvariant();
+            RefreshAll();
         }
 
         readonly VisualElement prompt;
+        readonly Label question;
+        readonly VisualElement prompts;
         public readonly Button CancelButton, ResetTabButton, ResetAllButton;
 
         Button PromptButton(string text, Action action)
@@ -269,15 +297,16 @@ namespace GoF2Remake.UI
             if (tabs.Count > 1) SelectTab(((TabIndex + dir) % tabs.Count + tabs.Count) % tabs.Count);
         }
 
-        /// <summary>The pause menu's highlight (its rows don't take focus): the row, tab or footer button looks focused.</summary>
-        public void Select(VisualElement item)
+        /// <summary>The pause menu's highlight (its rows don't take focus): the row, tab or footer button looks focused.
+        /// Modified: 'scrollTo' false leaves the page where it is (the row under the mouse).</summary>
+        public void Select(VisualElement item, bool scrollTo = true)
         {
             if (selected != null) Mark(selected, false);
             selected = item;
             if (selected == null) return;
             Mark(selected, true);
             var row = RowOf(selected);
-            if (row != null) tabs[TabIndex].scroll.ScrollTo(row.Root);
+            if (row != null && scrollTo) tabs[TabIndex].scroll.ScrollTo(row.Root);
         }
 
         static void Mark(VisualElement e, bool on)

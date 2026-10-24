@@ -1,7 +1,8 @@
 /* GoF2 remake: shared design tokens and base control styles (imported by GoF2Theme.tss).
    Palette from the original UI: steel-blue buttons, orange when pressed, cyan glow of the logo.
    :hover rules are scoped to .can-hover, which screen controllers set on their root only while a mouse is in use
-   (touch has no real hover: a sliding finger would highlight everything it passes). */
+   (touch has no real hover: a sliding finger would highlight everything it passes; the main and station menus also
+   drop it while the keys or a controller are used, InputMode.MousePointing, so a resting cursor lights no second row). */
 
 :root {
     --gof-cyan: #3EC8FF;
@@ -10,22 +11,72 @@
     --gof-amber: #FFA630;
     --gof-amber-soft: rgba(255, 166, 48, 0.30);
     --gof-text: #D8ECF7;
-    --gof-text-dim: rgba(216, 236, 247, 0.55);
-    --gof-text-disabled: rgba(216, 236, 247, 0.28);
+    --gof-text-dim: rgba(216, 236, 247, 0.7);       /* >= 4.5:1 on the panels and over the 3D scene behind a scrim */
+    --gof-text-disabled: rgba(216, 236, 247, 0.42); /* 3:1, the inactive-element minimum */
     --gof-panel: rgba(4, 10, 18, 0.93);
     --gof-line: rgba(62, 200, 255, 0.25);
     --gof-shadow: rgba(0, 0, 0, 0.6);
 
-    /* The original's interface font (gof2_interface.png's bitmap glyphs, font 1111) is Serpentine: Serpentine ICG Light,
-       with Inter as its fallback for the letters it lacks (Cyrillic, most of Latin Extended-A). */
-    -unity-font-definition: url("project://database/Assets/UI/Fonts/Serpentine-ICG-Light-SDF.asset");
+    /* Type scale (docs/UI-DESIGN.md "Type scale"), panel units of the 1080-high design; UiLayout scales the whole panel
+       per device, so these never change per platform. Every font-size uses one of them: nothing under --text-caption. */
+    --text-caption: 16px;    /* tags, badges, keycap letters, one-word metadata (upper case) */
+    --text-small: 18px;      /* secondary lines, descriptions, hints: the smallest running text */
+    --text-body: 20px;       /* body text, list rows, option labels */
+    --text-label: 22px;      /* buttons, row titles, menu entries */
+    --text-subhead: 24px;    /* section headings, emphasised values */
+    --text-heading: 28px;    /* panel titles */
+    --text-title: 34px;      /* screen titles */
+    --text-display: 64px;    /* big numbers, splash lines */
+
+    /* Controller glyph and keycap sizes (GoF2InputGlyphs.uss), scaled with the text size like the type scale. */
+    --glyph-key: 34px;
+    --glyph-face: 36px;
+    --glyph-face-r: 18px;
+    --glyph-stick: 40px;
+    --glyph-stick-r: 20px;
+    --glyph-trigger: 32px;
+    --glyph-bumper: 30px;
+    --glyph-bumper-r: 15px;
+    --glyph-menu: 30px;
+    --glyph-menu-r: 15px;
+
+    /* Spacing steps (docs/UI-DESIGN.md "Spacing"); USS has no calc(), so they are for new rules to pick from. */
+    --space-xs: 4px;
+    --space-s: 8px;
+    --space-m: 12px;
+    --space-l: 16px;
+    --space-xl: 24px;
+    --space-xxl: 32px;
+
+    /* Buttons (docs/UI-DESIGN.md "Buttons"): every screen's buttons take these, in three kinds: a list row (.menu-button,
+       .station-button, .choice-button: no box, the amber bar on the left when focused), a secondary button (a steel-blue
+       box, .gof-button) and the one primary action of a screen (amber, .gof-button--primary: Launch, Start game, Buy). */
+    --button-fill: rgba(16, 40, 58, 0.75);
+    --button-line: var(--gof-cyan-soft);
+    --button-border: 2px;
+    --button-border-compact: 1px;   /* the dense panels' small buttons (Mod Builder, multiplayer, Debug) */
+    --button-radius: 4px;
+    --button-focus-fill: rgba(255, 166, 48, 0.24);
+    --button-focus-line: var(--gof-amber);
+    --button-press-fill: var(--gof-amber);
+    --button-press-text: #0B1016;
+    --button-primary-fill: rgba(255, 166, 48, 0.16);
+    --button-primary-line: var(--gof-amber);
+    --button-primary-focus-fill: rgba(255, 166, 48, 0.38);
+
+    /* Klavika, the typeface of the original HD versions' interface. Medium is the body weight (the font has no upright
+       Regular); its asset's weight table gives bold and italic the real faces. Inter is the fallback for the letters
+       Klavika lacks (Cyrillic and the like). The only rule that names a font: a font chosen in Options > Accessibility
+       (UiFont) replaces it inline on each panel's root. */
+    -unity-font-definition: url("project://database/Assets/UI/Fonts/Klavika-Medium-SDF.asset");
     color: var(--gof-text);
-    font-size: 20px;
+    font-size: var(--text-body);
 }
 
+/* The bold weight of the font in use: Klavika's own Bold through its asset's weight table, and a font chosen in Options >
+   Accessibility (UiFont) its family's Bold face or faux bold. A font set here would override the player's choice. */
 .gof-semibold {
-    -unity-font-definition: url("project://database/Assets/UI/Fonts/Serpentine-ICG-Light-SDF.asset");
-    -unity-font-style: bold;   /* Serpentine has the one weight: the emphasis is the font asset's bold (faux) style */
+    -unity-font-style: bold;
 }
 
 /* ---- Slider -------------------------------------------------------------------------- */
@@ -81,6 +132,113 @@
     scale: 1.25 1.25;
 }
 
+/* Modified: the options' sliders (OptionControl.BuildSliderBox): the name, then at the row's right the value in a small
+   outlined box (the Sound page: a speaker before it, a click mutes) and the bar, as wide as the drop-downs, as before. */
+.option-slider > .unity-base-field__label {
+    flex-grow: 1;
+    flex-shrink: 1;
+}
+
+.option-slider > .unity-base-slider__input {
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 23%;
+    min-width: 150px;
+}
+
+/* One fixed size for every value ("100 %" fits), the text centred; only its outline (a Label is .unity-label too: it must
+   not grow like the name). */
+.option-slider > .option-slider-value {
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 78px;
+    min-width: 78px;
+    height: 30px;
+    margin: 0 8px 0 0;
+    padding: 0;
+    white-space: nowrap;
+    font-size: var(--text-small);
+    letter-spacing: 1px;
+    -unity-text-align: middle-center;
+    color: var(--gof-cyan);
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 1px;
+    border-color: var(--gof-cyan-soft);
+    border-radius: 4px;
+}
+
+.option-slider:focus > .option-slider-value,
+.autopilot-menu-item--selected > .option-slider-value,
+.options-selected > .option-slider-value {
+    color: var(--gof-amber);
+    border-color: var(--gof-amber);
+}
+
+/* The value takes a typed number (OptionControl.BeginEdit): it lights up under the mouse, and the edit box lies over it at
+   its size (OptionControl.PlaceEdit), the text white on a dark box with an amber outline. */
+.can-hover .option-slider > .option-slider-value:hover {
+    border-color: var(--gof-amber);
+    color: var(--gof-amber);
+}
+
+.option-slider-edit {
+    position: absolute;
+    margin: 0;
+    padding: 0;
+}
+
+.option-slider-edit .unity-text-element {
+    -unity-text-align: middle-center;
+}
+
+.option-slider-edit > .unity-base-text-field__input {
+    margin: 0;
+    padding: 0 4px;
+    font-size: var(--text-small);
+    letter-spacing: 1px;
+    -unity-text-align: middle-center;
+    color: var(--gof-text);
+    background-color: rgba(0, 0, 0, 0.55);
+    border-width: 1px;
+    border-color: var(--gof-amber);
+    border-radius: 4px;
+}
+
+/* A changed slider's reset arrow before its value (drawn by OptionControl.DrawReset in this colour); its room is kept
+   while hidden, so the rows' values line up. */
+.option-slider-reset {
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    margin-right: var(--space-xs);
+    color: var(--gof-text-dim);
+}
+
+.can-hover .option-slider-reset:hover {
+    color: var(--gof-amber);
+}
+
+.option-slider-mute {
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin-right: var(--space-s);
+    -unity-background-scale-mode: scale-to-fit;
+    -unity-background-image-tint-color: var(--gof-text);
+    opacity: 0.85;
+}
+
+.can-hover .option-slider-mute:hover {
+    -unity-background-image-tint-color: var(--gof-amber);
+    opacity: 1;
+}
+
+.option-slider-mute--muted {
+    -unity-background-image-tint-color: var(--gof-text-dim);
+}
+
 /* ---- Toggle -------------------------------------------------------------------------- */
 
 .unity-toggle {
@@ -94,7 +252,7 @@
     min-width: 220px;
     flex-grow: 1;
     flex-shrink: 1;
-    margin-right: 24px;
+    margin-right: var(--space-xl);
     white-space: normal;
     color: var(--gof-text);
 }
@@ -139,8 +297,7 @@
     color: var(--gof-text);
 }
 
-.choice-segments,
-.choice-stepper {
+.choice-segments {
     flex-grow: 1;
     flex-direction: row;
     align-items: center;
@@ -153,7 +310,7 @@
     margin: 0 4px 0 0;
     min-height: 36px;
     padding: 0 8px;
-    font-size: 15px;
+    font-size: var(--text-caption);
     -unity-text-align: middle-center;
     letter-spacing: 1px;
     color: var(--gof-text-dim);
@@ -182,26 +339,10 @@
     border-bottom-color: var(--gof-amber);
 }
 
-.choice-arrow {
-    width: 40px;
-    min-height: 36px;
-    font-size: 22px;
-    -unity-text-align: middle-center;
-    color: var(--gof-cyan);
-    background-color: rgba(255, 255, 255, 0.04);
-    border-width: 0;
-    border-radius: 0;
-    transition-duration: 0.15s;
-}
-
-.can-hover .choice-arrow:hover {
-    color: #FFFFFF;
-    background-color: var(--gof-cyan-faint);
-}
 
 .choice-value {
     flex-grow: 1;
-    font-size: 17px;
+    font-size: var(--text-small);
     letter-spacing: 1px;
     -unity-text-align: middle-center;
     color: var(--gof-cyan);
@@ -210,6 +351,136 @@
 .choice-row:focus .choice-value,
 .autopilot-menu-item--selected .choice-value {
     color: var(--gof-amber);
+}
+
+/* Modified: the long lists' drop-down (ChoiceRow, ChoicePopup) in place of the ‹ value › stepper: a box with the value in
+   the middle and a down chevron at its right, in the options' cyan; amber while hovered, pressed, open or the row has the
+   focus. Its list: the menus' dark panel and cyan line, one row per value, hover cyan, the current value amber and
+   ticked. */
+.choice-dropdown {
+    /* At the row's right end, about a quarter of its width (a long value slides: ChoiceRow.Marquee). */
+    flex-grow: 0;
+    flex-shrink: 0;
+    width: 23%;
+    min-width: 150px;
+    margin-left: auto;
+    flex-direction: row;
+    align-items: center;
+    min-height: 36px;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-right: 0;
+    padding: 0 12px 0 12px;
+    background-color: rgba(255, 255, 255, 0.04);
+    border-width: 1px;
+    border-color: var(--gof-cyan-soft);
+    border-radius: 4px;
+    /* Only the colours: its width (a share of the row) eased in each time a page showed, and the value with it. */
+    transition-property: background-color, border-color;
+    transition-duration: 0.15s;
+}
+
+.can-hover .choice-dropdown:hover,
+.choice-dropdown:active,
+.choice-row:focus .choice-dropdown,
+.autopilot-menu-item--selected .choice-dropdown {
+    background-color: var(--gof-cyan-faint);
+    border-color: var(--gof-amber);
+}
+
+.choice-dropdown-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    align-self: stretch;
+    overflow: hidden;
+}
+
+/* Placed by ChoiceRow.Marquee (its left and width): centred when it fits, sliding when it doesn't. */
+.choice-dropdown .choice-value {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    flex-grow: 0;
+    flex-shrink: 0;
+    white-space: nowrap;
+    -unity-text-align: middle-left;
+}
+
+.choice-dropdown-chevron {
+    width: 9px;
+    height: 9px;
+    margin: -5px 2px 0 8px;
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+    border-color: var(--gof-cyan);
+    rotate: 45deg;
+}
+
+.can-hover .choice-dropdown:hover .choice-dropdown-chevron,
+.choice-row:focus .choice-dropdown-chevron,
+.autopilot-menu-item--selected .choice-dropdown-chevron {
+    border-color: var(--gof-amber);
+}
+
+.choice-popup {
+    padding: var(--space-xs);
+    background-color: var(--gof-panel);
+    border-width: 1px;
+    border-color: var(--gof-line);
+    border-radius: 4px;
+}
+
+.choice-popup-item {
+    flex-direction: row;
+    align-items: center;
+    margin: 0;
+    padding: 0 16px;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    border-left-width: 3px;
+    border-left-color: rgba(0, 0, 0, 0);
+    border-radius: 0;
+    transition-duration: 0.12s;
+}
+
+.can-hover .choice-popup-item:hover {
+    background-color: var(--gof-cyan-faint);
+    border-left-color: var(--gof-cyan);
+}
+
+.choice-popup-item:active {
+    background-color: var(--gof-amber-soft);
+}
+
+.choice-popup-text {
+    flex-grow: 1;
+    font-size: var(--text-small);
+    letter-spacing: 1px;
+    -unity-text-align: middle-center;
+    color: var(--gof-text);
+}
+
+.choice-popup-item--current {
+    background-color: rgba(255, 166, 48, 0.12);
+    border-left-color: var(--gof-amber);
+}
+
+.choice-popup-item--current .choice-popup-text {
+    color: var(--gof-amber);
+}
+
+/* A tick: two sides of a turned box. */
+.choice-popup-tick {
+    position: absolute;
+    right: 16px;
+    top: 11px;
+    width: 7px;
+    height: 13px;
+    border-right-width: 2px;
+    border-bottom-width: 2px;
+    border-color: var(--gof-amber);
+    rotate: 45deg;
 }
 
 /* ---- BindingRow (Options > Controls: a control, its two keys and its controller button) --------------- */
@@ -223,7 +494,7 @@
 .binding-label {
     width: 34%;
     flex-shrink: 0;
-    padding-right: 8px;
+    padding-right: var(--space-s);
     color: var(--gof-text);
     white-space: normal;
 }
@@ -234,8 +505,8 @@
     max-width: 190px;
     min-height: 34px;
     margin: 0 0 0 4px;
-    padding: 0 6px;
-    font-size: 15px;
+    padding: 0 8px;
+    font-size: var(--text-caption);
     -unity-text-align: middle-center;
     white-space: nowrap;
     overflow: hidden;
@@ -251,12 +522,12 @@
 
 .binding-header {
     min-height: 26px;
-    margin-top: 6px;
+    margin-top: var(--space-s);
 }
 
 .binding-header-cell {
     min-height: 0;
-    font-size: 13px;
+    font-size: var(--text-caption);
     letter-spacing: 1px;
     color: var(--gof-text-dim);
     background-color: rgba(0, 0, 0, 0);
@@ -289,7 +560,7 @@
     width: 26px;
     margin: 0;
     padding: 0;
-    font-size: 18px;
+    font-size: var(--text-small);
     -unity-text-align: middle-center;
     color: var(--gof-text-dim);
     background-color: rgba(0, 0, 0, 0);
@@ -322,10 +593,35 @@
 }
 
 .option-description {
-    margin: 0 0 6px 13px;
-    font-size: 15px;
+    display: none;   /* Modified: the "?" icon's window (OptionInfo) has it; the line shows with a controller only */
+    margin: 0 0 8px 12px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
+}
+
+/* Modified: an option's "?" icon (OptionInfo, GoF2Hud/option_info), placed by OptionControl at the row's right end, in
+   the room every option row keeps for it (not the key bindings: their header's columns line up with them). With a
+   controller the description line shows instead. */
+.option-item--info-room {
+    padding-right: var(--space-xxl);
+}
+
+.option-info {
+    -unity-background-scale-mode: scale-to-fit;
+    opacity: 0.85;
+}
+
+.can-hover .option-info:hover {
+    opacity: 1;
+}
+
+.input-gamepad .option-description {
+    display: flex;
+}
+
+.input-gamepad .option-info {
+    display: none;
 }
 
 /* ---- ScrollView ----------------------------------------------------------------------
@@ -362,6 +658,62 @@
     display: none;
 }
 
+/* Modified: the hangar list's scrollbar on every vertical scroll view (ScrollBars): a slim track along the right edge and
+   a handle to drag, shown only while the content overflows; the content then keeps clear of it. */
+.gof-scroll-bar {
+    position: absolute;
+    width: 12px;
+    translate: -50% 0;   /* centred on the left ScrollBars sets (its track 8 units right of the view) */
+}
+
+.gof-scroll-bar-track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.06);
+    border-radius: 6px;
+}
+
+.gof-scroll-bar-thumb {
+    position: absolute;
+    left: 0;
+    right: 0;
+    min-height: 30px;
+    background-color: rgba(62, 200, 255, 0.45);
+    border-radius: 6px;
+}
+
+.can-hover .gof-scroll-bar:hover .gof-scroll-bar-thumb,
+.gof-scroll-bar-thumb--dragging {
+    background-color: var(--gof-cyan);
+}
+
+/* Phones: a finger-wide touch area beside the same slim track and handle, reaching out to the right only (the track's
+   centre stays where ScrollBars puts it: 6 units into a bar moved 6 units left). Centred on the track, its left half lay
+   over the list's right edge and took the taps meant for the options' "?" icons there. */
+.layout-phone .gof-scroll-bar {
+    width: 44px;
+    translate: -6px 0;
+}
+
+.layout-phone .gof-scroll-bar-track,
+.layout-phone .gof-scroll-bar-thumb {
+    left: 0;
+    right: 32px;
+}
+
+/* Phones: the "?" icon takes a tap in a fingertip-sized area around it (OptionInfo's hit pad), inside the room the row
+   keeps for it. */
+.option-info-pad {
+    display: none;
+}
+
+.layout-phone .option-info-pad {
+    display: flex;
+}
+
 /* ---- save slots (main menu Load, station Save game; SaveSlotRow) ------------------------------------------------------------------- */
 
 .slot-list {
@@ -378,7 +730,7 @@
     align-items: center;
     height: 64px;
     margin: 0;
-    padding: 0 20px 0 14px;
+    padding: 0 20px 0 16px;
     background-color: rgba(0, 0, 0, 0);
     border-width: 0;
     border-bottom-width: 1px;
@@ -397,7 +749,7 @@
 
 .slot-index {
     width: 58px;
-    font-size: 22px;
+    font-size: var(--text-label);
     letter-spacing: 2px;
     color: var(--gof-cyan);
     -unity-text-align: middle-left;
@@ -409,19 +761,19 @@
 }
 
 .slot-name {
-    font-size: 20px;
+    font-size: var(--text-body);
     color: var(--gof-text);
     -unity-text-align: middle-left;
 }
 
 .slot-sub {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     -unity-text-align: middle-left;
 }
 
 .slot-state {
-    font-size: 15px;
+    font-size: var(--text-caption);
     letter-spacing: 3px;
     color: var(--gof-text-dim);
 }
@@ -460,8 +812,8 @@
 
 .slot-delete-hint {
     flex-shrink: 0;
-    margin-top: 8px;
-    font-size: 14px;
+    margin-top: var(--space-s);
+    font-size: var(--text-small);
     letter-spacing: 1px;
     color: var(--gof-text-dim);
     -unity-text-align: middle-center;
@@ -473,15 +825,15 @@
 .debug-tabs {
     flex-direction: row;
     align-items: flex-end;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-m);
     border-bottom-width: 1px;
     border-bottom-color: var(--gof-line);
 }
 
 .debug-tab {
     margin: 0 4px 0 0;
-    padding: 10px 20px;
-    font-size: 20px;
+    padding: 8px 20px;
+    font-size: var(--text-body);
     letter-spacing: 3px;
     color: var(--gof-text-dim);
     background-color: rgba(0, 0, 0, 0);
@@ -496,24 +848,17 @@
     color: #FFFFFF;
 }
 
+/* docs/UI-DESIGN.md "Tabs": the open tab is a white label on the amber underline, no box (it had a cyan fill, which
+   is the focused look elsewhere). */
 .debug-tab--active {
     color: #FFFFFF;
-    background-color: var(--gof-cyan-faint);
     border-bottom-color: var(--gof-amber);
 }
 
-.debug-tab-hint {
-    margin-left: auto;
-    align-self: center;
-    font-size: 16px;
-    letter-spacing: 2px;
-    color: var(--gof-text-dim);
-}
-
 .debug-status {
-    margin: 0 0 10px 0;
-    padding: 8px 14px;
-    font-size: 19px;
+    margin: 0 0 8px 0;
+    padding: 8px 16px;
+    font-size: var(--text-body);
     white-space: normal;
     color: #FFFFFF;
     background-color: var(--gof-cyan-faint);
@@ -526,7 +871,7 @@
 }
 
 .debug-content {
-    margin-bottom: 10px;
+    margin-bottom: var(--space-s);
 }
 
 .debug-grid {
@@ -547,12 +892,13 @@
 .debug-columns > .debug-card {
     flex-grow: 1;
     flex-basis: 0;
-    margin-right: 12px;
+    margin-right: var(--space-m);
 }
 
+/* An inset on the panel: its line, no fill. A 3 % white fill (the UI blends in linear colour space) came out as a flat
+   (51, 52, 54) grey over the dark-blue panel, foreign to the palette (docs/UI-DESIGN.md "Colour"). */
 .debug-card {
-    padding: 10px 6px 6px 6px;
-    background-color: rgba(255, 255, 255, 0.03);
+    padding: 8px 8px 8px 8px;
     border-width: 1px;
     border-color: var(--gof-line);
 }
@@ -562,8 +908,8 @@
 }
 
 .debug-card-title {
-    margin: 0 0 6px 12px;
-    font-size: 18px;
+    margin: 0 0 8px 12px;
+    font-size: var(--text-small);
     letter-spacing: 3px;
     color: var(--gof-amber);
 }
@@ -574,39 +920,31 @@
 
 /* #82: the debug rows read on a phone too. */
 .debug-card .choice-value {
-    font-size: 21px;
+    font-size: var(--text-label);
 }
 
 .debug-card .choice-segment {
-    font-size: 18px;
+    font-size: var(--text-small);
     min-height: 42px;
 }
 
-.debug-card .choice-arrow {
-    min-height: 42px;
-    width: 48px;
-}
 
 .layout-phone .debug-card .choice-label,
 .layout-phone .debug-card .choice-value,
 .layout-phone .debug-action .option-button {
-    font-size: 24px;
+    font-size: var(--text-subhead);
 }
 
 .layout-phone .debug-card .choice-segment {
-    font-size: 21px;
+    font-size: var(--text-label);
     min-height: 48px;
 }
 
-.layout-phone .debug-card .choice-arrow {
-    min-height: 48px;
-    width: 56px;
-}
 
 /* The Give items page's icon grid under the Item stepper (CheatsCatalog.ItemPicker): a tap / click picks. */
 .debug-item-grid {
     height: 236px;   /* two rows (the Debug pages are tall enough for them with Amount and the buttons) */
-    margin: 6px 6px 2px 6px;
+    margin: 8px 8px 2px 8px;
     background-color: rgba(0, 0, 0, 0.18);
 }
 
@@ -633,7 +971,7 @@
 .debug-item-grid-content {
     flex-direction: row;
     flex-wrap: wrap;
-    padding: 4px;
+    padding: var(--space-xs);
 }
 
 .debug-item-cell {
@@ -643,7 +981,7 @@
     padding: 3px;
     overflow: hidden;
     align-items: center;
-    background-color: rgba(255, 255, 255, 0.04);
+    background-color: rgba(62, 200, 255, 0.06);   /* a tile of the panel blue; white at 4 % read grey */
     border-width: 2px;
     border-color: rgba(0, 0, 0, 0);
 }
@@ -667,7 +1005,7 @@
 .debug-item-name {
     align-self: stretch;
     margin-top: 2px;
-    font-size: 14px;
+    font-size: var(--text-caption);
     white-space: normal;
     -unity-text-align: upper-center;
     color: var(--gof-text);
@@ -678,18 +1016,18 @@
 /* The grid's hint panel (the Presets tab: the slot under the pointer, else the picked one, and its equipment). */
 .debug-grid-hint {
     min-height: 74px;
-    margin: 4px 6px 0 6px;
-    padding: 6px 8px;
+    margin: 4px 8px 0 8px;
+    padding: 8px 8px;
     background-color: rgba(0, 0, 0, 0.25);
     border-left-width: 3px;
     border-left-color: var(--gof-amber);
 }
 
 .debug-grid-hint-title {
-    font-size: 16px;
+    font-size: var(--text-small);
     color: #FFFFFF;
     white-space: normal;
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
 }
 
 .debug-grid-hint-items {
@@ -706,21 +1044,21 @@
 .debug-grid-hint-icon {
     width: 62px;
     height: 30px;
-    margin-right: 6px;
+    margin-right: var(--space-s);
     -unity-background-scale-mode: scale-to-fit;
 }
 
 .debug-grid-hint-text {
-    font-size: 14px;
+    font-size: var(--text-small);
     color: var(--gof-text);
 }
 
 .layout-phone .debug-grid-hint-title {
-    font-size: 21px;
+    font-size: var(--text-label);
 }
 
 .layout-phone .debug-grid-hint-text {
-    font-size: 18px;
+    font-size: var(--text-small);
 }
 
 /* An entry without an icon (the Ships tab's freighters and capital ships): its name in the middle, larger. */
@@ -728,12 +1066,37 @@
     justify-content: center;
 }
 
+/* Modified: the name's one line under the icon, the label inside placed by TextMarquee (centred, or sliding). */
+.debug-item-name-clip {
+    align-self: stretch;
+    height: 22px;
+    margin-top: var(--space-xs);
+}
+
+.debug-item-name-clip > .debug-item-name {
+    margin: 0;
+    max-height: none;
+}
+
+.debug-item-cell--text .debug-item-name-clip {
+    height: 28px;
+}
+
+.layout-phone .debug-item-name-clip {
+    height: 26px;
+}
+
+/* Modified: no description "?" on a grid's row (the Ships tab's showed one beside the grid). */
+.debug-item-grid-row > .option-info {
+    display: none;
+}
+
 .debug-item-cell--text .debug-item-icon {
     display: none;
 }
 
 .debug-item-cell--text .debug-item-name {
-    font-size: 17px;
+    font-size: var(--text-small);
     max-height: 60px;
 }
 
@@ -752,12 +1115,12 @@
 }
 
 .layout-phone .debug-item-name {
-    font-size: 17px;
+    font-size: var(--text-small);
     max-height: 44px;
 }
 
 .debug-action {
-    margin-top: 8px;
+    margin-top: var(--space-s);
 }
 
 .debug-buttons {
@@ -772,41 +1135,43 @@
 /* The Debug pages on a small high-density screen (UiScale, the root's ui-large): tabs, the result line, the cards and
    the pickers about 1.35x (the station's and the pause menu's rows grow in their own sheets). */
 .ui-large .debug-tab {
-    padding: 14px 24px;
-    font-size: 26px;
-}
-
-.ui-large .debug-tab-hint {
-    font-size: 20px;
+    padding: 16px 24px;
+    font-size: var(--text-heading);
 }
 
 .ui-large .debug-status {
-    font-size: 25px;
+    font-size: var(--text-heading);
 }
 
 .ui-large .debug-card-title {
-    font-size: 24px;
+    font-size: var(--text-subhead);
 }
 
 .ui-large .debug-card .choice-label {
     min-width: 200px;
 }
 
+/* Every option row's name at one size: the toggles' and sliders' names (a base field's label) grow with the drop-downs'
+   (a phone showed the drop-down rows' names larger than the toggles' between them), so do the key bindings' names and
+   the main menu's language buttons (left at the body size, they read smaller than the other tabs' rows). */
 .ui-large .choice-label,
 .ui-large .choice-value,
-.ui-large .choice-arrow,
-.ui-large .option-item .option-button {
-    font-size: 25px;
+.ui-large .option-item .unity-base-field__label,
+.ui-large .option-item .option-button,
+.ui-large .binding-label,
+.ui-large .language-button {
+    font-size: var(--text-heading);
 }
 
-.ui-large .choice-arrow {
-    min-width: 56px;
-    min-height: 56px;
+/* The key binding cells a size up with them: at the caption size they were the smallest text on the page. */
+.ui-large .binding-cell {
+    font-size: var(--text-body);
 }
+
 
 .ui-large .option-item .option-button {
     min-height: 60px;
-    padding: 10px 22px;
+    padding: 8px 24px;
 }
 
 /* Option rows that are actions (Reset key bindings, Steering Calibration): a framed button, not a row of plain text. */
@@ -814,26 +1179,26 @@
     align-self: flex-start;
     min-width: 240px;
     margin: 4px 0;
-    padding: 6px 18px;
+    padding: 8px 16px;
     -unity-text-align: middle-center;
     letter-spacing: 2px;
     color: var(--gof-text);
-    background-color: var(--gof-cyan-faint);
-    border-width: 1px;
-    border-color: var(--gof-cyan-soft);
-    border-radius: 0;
+    background-color: var(--button-fill);
+    border-width: var(--button-border-compact);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
 }
 
 .option-item .option-button:focus,
 .can-hover .option-item .option-button:hover {
-    background-color: var(--gof-cyan-soft);
-    border-color: var(--gof-cyan);
+    background-color: var(--button-focus-fill);
+    border-color: var(--button-focus-line);
     color: #FFFFFF;
 }
 
 .option-item .option-button:active {
-    background-color: var(--gof-cyan);
-    color: #0B1016;
+    background-color: var(--button-press-fill);
+    color: var(--button-press-text);
 }
 
 /* The spawn / give buttons look like buttons, not rows. */
@@ -845,17 +1210,127 @@
     -unity-text-align: middle-center;
     letter-spacing: 2px;
     color: #FFFFFF;
-    background-color: var(--gof-amber-soft);
-    border-width: 1px;
-    border-color: var(--gof-amber);
-    border-radius: 0;
+    background-color: var(--button-primary-fill);
+    border-width: var(--button-border);
+    border-color: var(--button-primary-line);
+    border-radius: var(--button-radius);
 }
 
 .debug-action .option-button:focus,
 .can-hover .option-item.debug-action .option-button:hover,
 .option-item.debug-action .option-button:active {
-    background-color: var(--gof-amber);
-    color: #0B1016;
+    background-color: var(--button-primary-focus-fill);
+    color: #FFFFFF;
+}
+
+/* ---- Buttons (docs/UI-DESIGN.md "Buttons"): the secondary and primary button for new screens; the older screens' own
+   button classes take the same --button-* tokens. -------------------------------------------------------------------- */
+.gof-button {
+    min-width: 140px;
+    margin: 0;
+    padding: 12px 24px;
+    font-size: var(--text-label);
+    letter-spacing: 3px;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+    color: var(--gof-text);
+    background-color: var(--button-fill);
+    border-width: var(--button-border);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
+    transition-duration: 0.15s;
+}
+
+.gof-button:focus,
+.gof-button.options-selected,
+.can-hover .gof-button:hover {
+    color: #FFFFFF;
+    border-color: var(--button-focus-line);
+    background-color: var(--button-focus-fill);
+}
+
+.gof-button:active {
+    color: var(--button-press-text);
+    background-color: var(--button-press-fill);
+}
+
+.gof-button:disabled {
+    opacity: 0.4;
+}
+
+.gof-button--primary {
+    color: #FFFFFF;
+    background-color: var(--button-primary-fill);
+    border-color: var(--button-primary-line);
+}
+
+.gof-button--primary:focus,
+.gof-button--primary.options-selected,
+.can-hover .gof-button--primary:hover {
+    background-color: var(--button-primary-focus-fill);
+}
+
+.gof-button--compact {
+    min-width: 0;
+    padding: 8px 16px;
+    font-size: var(--text-small);
+    letter-spacing: 2px;
+    border-width: var(--button-border-compact);
+}
+
+.layout-phone .gof-button {
+    min-height: 64px;
+}
+
+/* ---- Waiting (docs/UI-DESIGN.md "Waiting"; UiBusy): the turning arc before a waiting line ---------------------------- */
+.gof-busy {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: var(--text-body);
+    height: var(--text-body);
+    margin-top: -10px;
+}
+
+.gof-busy-label {
+    padding-left: var(--space-xxl);
+}
+
+/* A waiting Button: the spinner in the row before its text, not over it. */
+.gof-busy-button {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.gof-busy-button > .gof-busy {
+    position: relative;
+    left: auto;
+    top: auto;
+    flex-shrink: 0;
+    margin: 0 var(--space-s) 0 0;
+}
+
+/* A waiting Button's own text, moved into this Label while the spinner is in it (UiBusy.Mark takes the button's font,
+   colour and letter spacing over). */
+.gof-busy-text {
+    margin: 0;
+    padding: 0;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+}
+
+/* ---- Toasts (docs/UI-DESIGN.md "Notices"): a short message that needs no answer, on the panel colour with the amber
+   bar on its left; it fades in and out (the owner toggles .gof-toast--shown). --------------------------------------- */
+.gof-toast {
+    padding: 16px 24px;
+    font-size: var(--text-label);
+    color: #FFFFFF;
+    white-space: normal;
+    background-color: var(--gof-panel);
+    border-left-width: 3px;
+    border-left-color: var(--gof-amber);
+    transition-duration: 0.25s;
 }
 
 /* ---- Options panels (the main menu's Options panel and the in-game ones, OptionsView) --------------------
@@ -871,7 +1346,8 @@
     margin: 4px 0;
     padding: 12px 20px;
     -unity-text-align: middle-left;
-    font-size: 26px;
+    white-space: nowrap;   /* a menu entry never wraps: a long one widens its column (TV, 1:1) */
+    font-size: var(--text-heading);
     letter-spacing: 5px;
     color: var(--gof-text-dim);
     opacity: 1;
@@ -886,7 +1362,7 @@
     background-color: var(--gof-cyan-faint);
     /* Hover moves the label, not the box: a translated box slid out from under the cursor on its edge, which then
        un-hovered and slid back (flicker, missed clicks). */
-    padding-left: 34px;
+    padding-left: var(--space-xxl);
 }
 
 .menu-button:disabled {
@@ -894,7 +1370,7 @@
 }
 
 .panel-title {
-    font-size: 30px;
+    font-size: var(--text-title);
     letter-spacing: 6px;
     color: var(--gof-cyan);
     -unity-text-align: middle-left;
@@ -903,33 +1379,40 @@
 .panel-accent {
     height: 2px;
     width: 120px;
-    margin: 14px 0 26px 0;
+    margin: 16px 0 24px 0;
     background-color: var(--gof-amber);
 }
 
 .back-button {
     align-self: flex-start;
     margin-top: 28px;
-    font-size: 20px;
+    font-size: var(--text-body);
 }
 
 .tab-row {
     flex-direction: row;
-    flex-wrap: wrap;   /* six tabs: a second line on narrow panels rather than wrapped words */
-    margin-bottom: 18px;
+    flex-shrink: 0;    /* never squeezed under the page (a second line at a large text size) */
+    flex-wrap: wrap;   /* a second line on a very narrow panel rather than wrapped words */
+    align-items: flex-end;
+    margin-bottom: var(--space-l);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--gof-line);
 }
 
+/* Rework (docs/UI-DESIGN.md "Tabs"): one tab look for every window, the hangar's, the Missions window's and the Debug
+   pages': no box, the label on a 3 px underline; the open tab white on an amber underline; focus (keys / controller)
+   the amber fill below. They were grey boxes in the caption size here. */
 .tab-button {
     flex-shrink: 0;
     white-space: nowrap;
-    margin: 0 6px 6px 0;
-    padding: 10px 14px;
-    font-size: 16px;
+    margin: 0 2px 0 0;
+    padding: 12px 16px;
+    font-size: var(--text-body);
     letter-spacing: 2px;
     color: var(--gof-text-dim);
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: rgba(0, 0, 0, 0);
     border-width: 0;
-    border-bottom-width: 2px;
+    border-bottom-width: 3px;
     border-bottom-color: rgba(0, 0, 0, 0);
     border-radius: 0;
     transition-duration: 0.15s;
@@ -938,12 +1421,11 @@
 .can-hover .tab-button:hover,
 .tab-button:focus {
     color: #FFFFFF;
-    background-color: var(--gof-cyan-faint);
 }
 
 .tab-button--active {
-    color: var(--gof-cyan);
-    border-bottom-color: var(--gof-cyan);
+    color: #FFFFFF;
+    border-bottom-color: var(--gof-amber);
 }
 
 .tab-page {
@@ -956,7 +1438,7 @@
 
 .option-row {
     margin: 2px 0;
-    padding: 2px 10px;
+    padding: 2px 8px;
     border-left-width: 3px;
     border-left-color: rgba(0, 0, 0, 0);
     transition-duration: 0.15s;
@@ -1008,7 +1490,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
-    margin-right: 12px;
+    margin-right: var(--space-m);
     color: var(--gof-text-dim);
     -unity-text-align: middle-left;
     white-space: normal;
@@ -1017,7 +1499,7 @@
 .options-reset-prompt > .menu-button {
     align-self: auto;
     flex-shrink: 0;
-    margin-left: 8px;
+    margin-left: var(--space-s);
 }
 
 .options-reset-all {
@@ -1026,8 +1508,8 @@
 
 /* OptionsView: the panel itself, like the main menu's .panel (shown at once, no slide-in). */
 .options-panel {
-    width: 90%;
-    max-width: 1000px;   /* the six tabs on one line */
+    width: 94%;
+    max-width: 1240px;   /* the seven tabs on one line (at --text-body, docs/UI-DESIGN.md "Tabs") */
     max-height: 92%;
     padding: 36px 44px;
     background-color: var(--gof-panel);
@@ -1066,19 +1548,19 @@
     color: #FFFFFF;
     border-left-color: var(--gof-amber);
     background-color: var(--gof-cyan-faint);
-    padding-left: 34px;
+    padding-left: var(--space-xxl);
 }
 
 .layout-phone .options-panel {
-    padding: 24px 34px;
+    padding: 24px 32px;
 }
 
 .layout-phone .options-panel .panel-accent {
-    margin: 10px 0 16px 0;
+    margin: 8px 0 16px 0;
 }
 
 .layout-phone .options-panel .back-button {
-    margin-top: 14px;
+    margin-top: var(--space-l);
 }
 
 /* ---- controller focus (remake, #24: on a TV the faint cyan highlight was hard to find) ------------------------------
@@ -1107,10 +1589,6 @@
     background-color: rgba(255, 166, 48, 0.24);
 }
 
-.input-gamepad .choice-row:focus .choice-arrow {
-    color: var(--gof-amber);
-    background-color: rgba(255, 166, 48, 0.18);
-}
 
 .input-gamepad .tab-button:focus,
 .input-gamepad .tab-button.options-selected,
@@ -1121,6 +1599,8 @@
 }
 
 .input-gamepad .choice-button:focus,
+.input-gamepad .station-menu-button:focus,
+.input-gamepad .mbv-button:focus,
 .input-gamepad .campaign-card:focus,
 .input-gamepad .mp-address-row:focus,
 .input-gamepad .mp-action:focus,
@@ -1151,6 +1631,25 @@
     white-space: nowrap;
 }
 
+/* The shared text field (docs/UI-DESIGN.md "Controls"): a dark box with a faint outline, amber with the focus, so a field
+   reads as one before anything is typed (the multiplayer window's fields had no box: their values read as labels). */
+.gof-field .unity-base-text-field__input {
+    -unity-text-align: middle-left;
+    min-height: 36px;
+    padding: 4px 8px;
+    font-size: var(--text-small);
+    color: var(--gof-text);
+    background-color: rgba(0, 0, 0, 0.35);
+    border-width: 1px;
+    border-color: rgba(216, 236, 247, 0.25);
+    border-radius: 2px;
+}
+
+.gof-field:focus .unity-base-text-field__input,
+.gof-field .unity-base-text-field__input:focus {
+    border-color: var(--gof-amber);
+}
+
 /* A text field with the controller's focus (#20: the multiplayer panel's fields gave no sign of it). */
 .input-gamepad .unity-text-field:focus > .unity-text-field__input,
 .input-gamepad .unity-text-field__input:focus {
@@ -1165,7 +1664,7 @@
     position: absolute;
     left: 64px;
     top: 40px;
-    font-size: 34px;
+    font-size: var(--text-title);
     letter-spacing: 6px;
     color: #FFFFFF;
     text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
@@ -1184,7 +1683,7 @@
     min-width: 170px;
     padding: 16px 24px;
     margin: 0 16px 0 0;
-    font-size: 22px;
+    font-size: var(--text-label);
     letter-spacing: 3px;
     white-space: nowrap;
     -unity-text-align: middle-center;
@@ -1212,7 +1711,7 @@
 }
 
 .orbit-view-hints .hint {
-    margin-left: 10px;
+    margin-left: var(--space-s);
 }
 
 /* Hide UI: nothing over the view (a short click / tap or H / Y brings it back). */
@@ -1229,7 +1728,7 @@
     left: 0;
     right: 0;
     bottom: 130px;
-    font-size: 24px;
+    font-size: var(--text-subhead);
     letter-spacing: 3px;
     -unity-text-align: middle-center;
     color: #FFFFFF;
@@ -1255,7 +1754,7 @@
     top: 104px;
     bottom: 130px;
     width: 600px;
-    padding: 18px 20px 14px 20px;
+    padding: 16px 20px 16px 20px;
     background-color: var(--gof-panel);
     border-width: 1px;
     border-color: var(--gof-line);
@@ -1282,10 +1781,10 @@
 }
 
 .photo-panel-title {
-    font-size: 24px;
+    font-size: var(--text-subhead);
     letter-spacing: 4px;
     color: #FFFFFF;
-    margin: 0 0 10px 10px;
+    margin: 0 0 8px 8px;
 }
 
 .photo-panel-scroll {
@@ -1298,7 +1797,16 @@
 }
 
 .photo-panel .option-item .option-button {
-    margin: 10px 10px 4px 10px;
+    margin: 8px 8px 4px 8px;
+}
+
+/* Under the rows: how to type a value and put one back (PhotoTools.UpdatePanelHint). */
+.photo-panel-hint {
+    flex-shrink: 0;
+    margin: 8px 8px 0 8px;
+    white-space: normal;
+    font-size: var(--text-caption);
+    color: var(--gof-text-dim);
 }
 
 .photo-frame {
@@ -1333,22 +1841,6 @@
     bottom: 0;
 }
 
-.photo-grid-v {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background-color: rgba(255, 255, 255, 0.35);
-}
-
-.photo-grid-h {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background-color: rgba(255, 255, 255, 0.35);
-}
-
 .orbit-view--clean .photo-panel,
 .orbit-view--clean .photo-frame {
     display: none;
@@ -1367,7 +1859,7 @@
 
 .photo-saved-path {
     flex-shrink: 1;
-    font-size: 18px;
+    font-size: var(--text-small);
     color: rgba(255, 255, 255, 0.85);
     text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
     -unity-text-align: middle-center;
@@ -1377,20 +1869,356 @@
 .photo-saved-button {
     flex-shrink: 0;
     margin: 0 0 0 16px;
-    padding: 10px 18px;
-    font-size: 18px;
+    padding: 8px 16px;
+    font-size: var(--text-small);
     letter-spacing: 2px;
-    color: #FFFFFF;
-    background-color: rgba(62, 200, 255, 0.12);
-    border-width: 2px;
-    border-color: var(--gof-cyan);
-    border-radius: 4px;
+    color: var(--gof-text);
+    background-color: var(--button-fill);
+    border-width: var(--button-border);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
 }
 
 .photo-saved-button:hover {
-    background-color: rgba(62, 200, 255, 0.28);
+    background-color: var(--button-focus-fill);
+    color: #FFFFFF;
+    border-color: var(--button-focus-line);
 }
 
 .photo-saved-button:active {
-    background-color: rgba(62, 200, 255, 0.4);
+    background-color: var(--button-press-fill);
+    color: var(--button-press-text);
+}
+
+/* ---- Accessibility (docs/UI-DESIGN.md "Accessibility"; UiLayout puts the classes on each screen's root) ---------- */
+
+/* Every screen's root (UiLayout.Configure): the body size and colour under its text size class. */
+.ui-root {
+    font-size: var(--text-body);
+    color: var(--gof-text);
+}
+
+/* Options > Accessibility "Text size": the type scale times the step, the layout unchanged (XAG 101: text to 200 %). */
+.ui-text-115 {
+    --glyph-key: 39px;
+    --glyph-face: 41px;
+    --glyph-face-r: 21px;
+    --glyph-stick: 46px;
+    --glyph-stick-r: 23px;
+    --glyph-trigger: 37px;
+    --glyph-bumper: 34px;
+    --glyph-bumper-r: 17px;
+    --glyph-menu: 34px;
+    --glyph-menu-r: 17px;
+    --text-caption: 18px;
+    --text-small: 21px;
+    --text-body: 23px;
+    --text-label: 25px;
+    --text-subhead: 28px;
+    --text-heading: 32px;
+    --text-title: 39px;
+    --text-display: 74px;
+}
+
+.ui-text-130 {
+    --glyph-key: 44px;
+    --glyph-face: 47px;
+    --glyph-face-r: 23px;
+    --glyph-stick: 52px;
+    --glyph-stick-r: 26px;
+    --glyph-trigger: 42px;
+    --glyph-bumper: 39px;
+    --glyph-bumper-r: 20px;
+    --glyph-menu: 39px;
+    --glyph-menu-r: 20px;
+    --text-caption: 21px;
+    --text-small: 23px;
+    --text-body: 26px;
+    --text-label: 29px;
+    --text-subhead: 31px;
+    --text-heading: 36px;
+    --text-title: 44px;
+    --text-display: 83px;
+}
+
+.ui-text-150 {
+    --glyph-key: 51px;
+    --glyph-face: 54px;
+    --glyph-face-r: 27px;
+    --glyph-stick: 60px;
+    --glyph-stick-r: 30px;
+    --glyph-trigger: 48px;
+    --glyph-bumper: 45px;
+    --glyph-bumper-r: 22px;
+    --glyph-menu: 45px;
+    --glyph-menu-r: 22px;
+    --text-caption: 24px;
+    --text-small: 27px;
+    --text-body: 30px;
+    --text-label: 33px;
+    --text-subhead: 36px;
+    --text-heading: 42px;
+    --text-title: 51px;
+    --text-display: 96px;
+}
+
+.ui-text-175 {
+    --glyph-key: 60px;
+    --glyph-face: 63px;
+    --glyph-face-r: 32px;
+    --glyph-stick: 70px;
+    --glyph-stick-r: 35px;
+    --glyph-trigger: 56px;
+    --glyph-bumper: 52px;
+    --glyph-bumper-r: 26px;
+    --glyph-menu: 52px;
+    --glyph-menu-r: 26px;
+    --text-caption: 28px;
+    --text-small: 32px;
+    --text-body: 35px;
+    --text-label: 38px;
+    --text-subhead: 42px;
+    --text-heading: 49px;
+    --text-title: 60px;
+    --text-display: 112px;
+}
+
+.ui-text-200 {
+    --glyph-key: 68px;
+    --glyph-face: 72px;
+    --glyph-face-r: 36px;
+    --glyph-stick: 80px;
+    --glyph-stick-r: 40px;
+    --glyph-trigger: 64px;
+    --glyph-bumper: 60px;
+    --glyph-bumper-r: 30px;
+    --glyph-menu: 60px;
+    --glyph-menu-r: 30px;
+    --text-caption: 32px;
+    --text-small: 36px;
+    --text-body: 40px;
+    --text-label: 44px;
+    --text-subhead: 48px;
+    --text-heading: 56px;
+    --text-title: 68px;
+    --text-display: 128px;
+}
+
+/* "High contrast": solid panels, brighter secondary text, lines and focus (XAG 102). */
+.ui-high-contrast {
+    --gof-panel: rgb(0, 0, 0);
+    --gof-text-dim: rgba(232, 244, 250, 0.95);
+    --gof-text-disabled: rgba(216, 236, 247, 0.6);
+    --gof-line: rgba(62, 200, 255, 0.7);
+    --gof-cyan-soft: rgba(62, 200, 255, 0.85);
+    --gof-cyan-faint: rgba(62, 200, 255, 0.28);
+}
+
+.ui-high-contrast .panel,
+.ui-high-contrast .options-panel,
+.ui-high-contrast .system-menu,
+.ui-high-contrast .pause-panel,
+.ui-high-contrast .hangar-window,
+.ui-high-contrast .missions-window,
+.ui-high-contrast .status-window,
+.ui-high-contrast .dialog,
+.ui-high-contrast .lounge-row,
+.ui-high-contrast .hint,
+.ui-high-contrast .station-menu-button,
+.ui-high-contrast .chat-window,
+.ui-high-contrast .mpw-window {
+    background-color: rgb(0, 0, 0);
+}
+
+.ui-high-contrast .menu-button,
+.ui-high-contrast .tab-button {
+    color: rgb(232, 244, 250);
+}
+
+.ui-high-contrast .menu-button:focus,
+.ui-high-contrast .tab-button:focus {
+    border-left-width: 5px;
+}
+
+/* "Reduce motion": no sliding or fading UI transitions; elements take their end state at once. */
+.ui-reduce-motion * {
+    transition-duration: 0s;
+    transition-delay: 0s;
+}
+
+/* Buttons without an alignment of their own: the text centred both ways (UI Toolkit's default is the upper left, which
+   showed once the phone layout made them taller: JOIN and x at the top of their boxes). */
+.tab-button,
+.hangar-tab,
+.missions-tab,
+.debug-tab,
+.language-button,
+.station-menu-button,
+.station-dialog-button,
+.dialog-button,
+.map-dialog-button,
+.mods-footer-button,
+.squad-button,
+.missions-discard,
+.gof-button {
+    -unity-text-align: middle-center;
+}
+
+/* ---- Phones: touch targets (docs/UI-DESIGN.md "Spacing and sizes": at least 64 units from row to row, about 7 mm,
+   near Apple's 44 pt; the HUD's touch controls are the original's own sizes) ------------------------------------------ */
+.layout-phone .menu-button,
+.layout-phone .back-button,
+.layout-phone .tab-button,
+.layout-phone .hangar-tab,
+.layout-phone .missions-tab,
+.layout-phone .debug-tab,
+.layout-phone .option-row,
+.layout-phone .binding-row,
+.layout-phone .choice-popup-item,
+.layout-phone .language-button,
+.layout-phone .list-row,
+.layout-phone .slot-row,
+.layout-phone .lounge-row,
+.layout-phone .wanted-row,
+.layout-phone .mods-row,
+.layout-phone .mp-server-row,
+.layout-phone .station-button,
+.layout-phone .station-menu-button,
+.layout-phone .station-dialog-button,
+.layout-phone .dialog-button,
+.layout-phone .dialogue-button,
+.layout-phone .autopilot-menu-item,
+.layout-phone .map-button,
+.layout-phone .map-dialog-button,
+.layout-phone .choice-button,
+.layout-phone .mods-footer-button,
+.layout-phone .squad-button,
+.layout-phone .orbit-view-back,
+.layout-phone .missions-discard,
+.layout-phone .update-button {
+    min-height: 64px;
+}
+
+.layout-phone .gof-field .unity-base-text-field__input {
+    min-height: 64px;
+}
+
+/* ---- "Keep these settings?" (SettingsConfirm; docs/UI-DESIGN.md "Options") ------------------------------------------- */
+.settings-confirm {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    justify-content: center;
+    align-items: center;
+    background-color: rgba(0, 0, 0, 0.72);
+}
+
+.settings-confirm__box {
+    width: 760px;
+    max-width: 92%;
+    padding: 32px 40px;
+    background-color: rgb(4, 10, 18);
+    border-width: 1px;
+    border-color: var(--gof-line);
+    border-top-width: 3px;
+    border-top-color: var(--gof-amber);
+}
+
+.settings-confirm__title {
+    font-size: var(--text-heading);
+    letter-spacing: 5px;
+    color: var(--gof-cyan);
+}
+
+.settings-confirm__text {
+    margin: 16px 0 28px 0;
+    font-size: var(--text-body);
+    color: var(--gof-text);
+    white-space: normal;
+}
+
+.settings-confirm__buttons {
+    flex-direction: row;
+    justify-content: flex-end;
+}
+
+.settings-confirm__buttons > .gof-button {
+    margin-left: var(--space-m);
+}
+
+/* ---- The controller's on-screen keyboard (PadKeyboard; docs/UI-DESIGN.md "Text entry") ------------------------------ */
+.pad-keyboard {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    justify-content: flex-end;
+    align-items: center;
+    padding-bottom: 4%;
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+.pad-keyboard__box {
+    width: 980px;
+    max-width: 94%;
+    padding: 20px 24px 16px 24px;
+    background-color: var(--gof-panel);
+    border-width: 1px;
+    border-color: var(--gof-line);
+    border-top-width: 3px;
+    border-top-color: var(--gof-cyan);
+}
+
+.pad-keyboard__preview {
+    margin-bottom: var(--space-m);
+    padding: 8px 16px;
+    font-size: var(--text-subhead);
+    color: #FFFFFF;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-width: 1px;
+    border-color: var(--gof-cyan-soft);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.pad-keyboard__row {
+    flex-direction: row;
+}
+
+.pad-keyboard__key {
+    flex-grow: 1;
+    flex-basis: 0;
+    height: 64px;
+    margin: 3px;
+    padding: 0;
+    font-size: var(--text-subhead);
+    -unity-text-align: middle-center;
+    color: var(--gof-text);
+    background-color: rgba(255, 255, 255, 0.06);
+    border-width: 2px;
+    border-color: rgba(216, 236, 247, 0.2);
+    border-radius: 4px;
+}
+
+.pad-keyboard__key--wide {
+    font-size: var(--text-body);
+    letter-spacing: 2px;
+}
+
+.pad-keyboard__key--sel {
+    color: #FFFFFF;
+    background-color: rgba(255, 166, 48, 0.3);
+    border-color: var(--gof-amber);
+}
+
+.can-hover .pad-keyboard__key:hover {
+    border-color: var(--gof-cyan);
+}
+
+.pad-keyboard__prompts {
+    margin-top: var(--space-s);
+    justify-content: center;
 }

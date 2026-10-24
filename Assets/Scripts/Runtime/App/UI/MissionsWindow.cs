@@ -4,7 +4,7 @@
 //   555 "Story"      the campaign objective text (story.json objectiveText, # = the target station), 424 "Show on map"
 //   556 "Freelance"  the client's portrait, name, station and mission type (354 + type), the offer as the agent said it
 //                    (#C = reward + the current standing bonus), 424 "Show on map" and, only in a station, 423 "Discard"
-//                    (red) -> 418 "Are you sure?"; no mission: 174 "-BLANK-"
+//                    (red) -> 418 "Are you sure?"; no mission: 174 "-BLANK-" (rework: a line saying what to do)
 // Show on map opens the star map in mission mode (StarMap(true, mission)). Locked before campaign 9 like the Map.
 // The tab 3219 "Most Wanted" (WantedWindow 0xf4a58, wingmen_wanted.md 2.5) when the station has a board
 // (WantedBoard.Accessible): the board's criminals (active ones bright, the storyline one gold), and for the selected one
@@ -42,6 +42,8 @@ namespace GoF2Remake.UI
         readonly Label wantedName, wantedStatus, wantedBounty, wantedText;
         readonly List<Button> wantedRows = new List<Button>();
         enum Tab { Missions, Wanted, Pirates }
+
+        const string PirateHelpEnglish = "Pirate activity\n\nThe authorities report pirate outposts and pirate bosses sighted in the systems. The board names the system but not the station: you have to search its orbits. Each report shows its threat level, the bounty and how long it stays on the board. Destroy the outpost or the boss to collect the bounty.";
         Tab tab;
         bool wantedShown => tab != Tab.Missions;   // the list-and-details panel (the Most Wanted's or the pirates')
         int wantedSelected = -1, pirateSelected = -1;
@@ -61,6 +63,19 @@ namespace GoF2Remake.UI
             storyScroll = Scroll("storyScroll");
             freelanceScroll = Scroll("freelanceScroll");
             close = Bind("missionsClose", Close);
+            // Modified: a "?" beside Back with the help of the tab shown (OptionInfo): Missions 635, Most Wanted 601, Pirate
+            // activity (new: pirateHelp).
+            var help = OptionInfo.Icon(() => tab == Tab.Pirates ? Localization.Extra("pirateHelp", PirateHelpEnglish)
+                                            : tab == Tab.Wanted ? Localization.Get(601) : Localization.Get(635));
+            help.AddToClassList("window-help");
+            help.style.position = Position.Relative;
+            help.style.width = help.style.height = 34f;
+            close.parent.Insert(close.parent.IndexOf(close), help);
+            // Rework: the window's keys (select, switch tab with Q / E or LB / RB, confirm, back) as a prompt row in the strip
+            // under the window, like the hangar's hint row (docs/UI-DESIGN.md "Button prompts"; it was an "i").
+            var prompts = MenuKeys.Bar(MenuKeys.Rows.Select | MenuKeys.Rows.Tabs | MenuKeys.Rows.Confirm | MenuKeys.Rows.Back);
+            prompts.AddToClassList("prompt-bar--below");
+            close.parent.parent.Add(prompts);
             storyMap = Bind("storyMap", () => ShowOnMap(storyMapTarget, storyMap));
             freelanceMap = Bind("freelanceMap", () => ShowOnMap(Freelance.Active ? Freelance.MapStation : GoF2Remake.Events.EventRunner.LocalMissionTarget, freelanceMap));
             discard = Bind("freelanceDiscard", AskDiscard);
@@ -108,6 +123,23 @@ namespace GoF2Remake.UI
 
         public bool IsOpen => root.ClassListContains("missions-open");
 
+        /// <summary>Modified: the labels set while this window was built, read again from the table loaded now
+        /// (StationMenu.RefreshTexts on Localization.Changed). What Open / Fill writes already reads it as it goes.</summary>
+        public void RefreshTexts()
+        {
+            root.Q<Label>("missionsTitle").text = T(129).ToUpperInvariant();
+            root.Q<Label>("storyHeading").text = T(555).ToUpperInvariant();
+            root.Q<Label>("freelanceHeading").text = T(556).ToUpperInvariant();
+            close.text = Localization.Extra("hudBack", "BACK");
+            storyMap.text = freelanceMap.text = T(424).ToUpperInvariant();
+            discard.text = T(423).ToUpperInvariant();
+            missionsTab.text = T(129).ToUpperInvariant();
+            wantedTab.text = T(3219).ToUpperInvariant();
+            pirateTab.text = Localization.Extra("pirateBoardTab", "Pirate activity").ToUpperInvariant();
+            wantedMap.text = T(424).ToUpperInvariant();
+            if (IsOpen) Fill();
+        }
+
         public void Open()
         {
             root.AddToClassList("missions-open");
@@ -129,6 +161,18 @@ namespace GoF2Remake.UI
         static bool PiratesHere => PirateReports.Enabled
             && (GoF2Remake.Multiplayer.NetGame.Active || (Session.Rank >= 2 && (Session.FreePlay || Session.CampaignMission >= 0x10)));
 
+        /// <summary>Modified: Q / E, LB / RB: the next / previous tab shown (Missions, Pirate activity, Most Wanted).</summary>
+        public void StepTab(int dir)
+        {
+            var order = new List<Tab> { Tab.Missions };
+            if (PiratesHere) order.Add(Tab.Pirates);
+            if (BoardHere) order.Add(Tab.Wanted);
+            if (order.Count < 2) return;
+            int i = Mathf.Max(0, order.IndexOf(tab));
+            ShowTab(order[((i + dir) % order.Count + order.Count) % order.Count]);
+            menu.PlayRelease();
+        }
+
         void ShowTab(Tab t)
         {
             tab = t == Tab.Wanted && !BoardHere || t == Tab.Pirates && !PiratesHere ? Tab.Missions : t;
@@ -140,8 +184,8 @@ namespace GoF2Remake.UI
             var db = level.Database;
             bool board = BoardHere, pirates = PiratesHere;
             if (tab == Tab.Wanted && !board || tab == Tab.Pirates && !pirates) tab = Tab.Missions;
-            bool tabs = board || pirates;
-            missionsTab.EnableInClassList("missions-tab--hidden", !tabs);
+            // Modified: the Missions tab always shows (the window's title is gone: the tabs name it, as in the hangar).
+            missionsTab.EnableInClassList("missions-tab--hidden", false);
             wantedTab.EnableInClassList("missions-tab--hidden", !board);
             pirateTab.EnableInClassList("missions-tab--hidden", !pirates);
             missionsTab.EnableInClassList("missions-tab--active", tab == Tab.Missions);
@@ -163,7 +207,7 @@ namespace GoF2Remake.UI
             if (story) parts.Add(Story.ObjectiveText(db));
             var quests = GoF2Remake.Events.EventRunner.Quests();
             foreach (var q in quests) parts.Add(q.title.ToUpperInvariant() + (q.objective.Length > 0 ? "\n" + q.objective : ""));
-            storyText.text = parts.Count > 0 ? string.Join("\n\n", parts) : T(174);
+            storyText.text = parts.Count > 0 ? string.Join("\n\n", parts) : Localization.Extra("missionsNoStory", "No story mission right now.");   // the original: 174 "-BLANK-"
             // Remake multiplayer (no story there): the event graph mission the squad is on (EventMissions).
             var eventMission = GoF2Remake.Events.EventMissions.Active;
             bool inSession = GoF2Remake.Multiplayer.NetGame.Active;
@@ -197,7 +241,7 @@ namespace GoF2Remake.UI
                 freelanceClient.text = active ? m.clientName.ToUpperInvariant() : "";
                 string station = active ? db.Stations.Find(s => s.index == m.clientStation)?.name ?? "" : "";
                 freelanceWhere.text = active ? $"{station}\n{m.Name}" : "";
-                freelanceText.text = active ? FreelanceText(db, m) : T(174);
+                freelanceText.text = active ? FreelanceText(db, m) : Localization.Extra("missionsNoFreelance", "No mission taken. The visitors in a Space Lounge offer work.");
                 Show(freelanceMap, active);
                 Show(discard, active);
             }
@@ -237,6 +281,7 @@ namespace GoF2Remake.UI
                 menu.Focus(from);
             }, -1, target, false, routeFromSystem, -1, menu.CanTravelFromMap);
             if (map == null) root.RemoveFromClassList("station-map-open");
+            else map.SetHelp(menu.MapHelpText);   // Modified: the station map's "?" here too
         }
 
         /// <summary>423 Discard -> 418 "Are you sure?" -> the same clean-up as a discarded mission.</summary>
@@ -257,8 +302,8 @@ namespace GoF2Remake.UI
             if (!missionsTab.ClassListContains("missions-tab--hidden"))
             {
                 l.Add(missionsTab);
+                if (!pirateTab.ClassListContains("missions-tab--hidden")) l.Add(pirateTab);   // Modified: in the tabs' order
                 if (!wantedTab.ClassListContains("missions-tab--hidden")) l.Add(wantedTab);
-                if (!pirateTab.ClassListContains("missions-tab--hidden")) l.Add(pirateTab);
             }
             if (wantedShown)
             {
@@ -314,7 +359,7 @@ namespace GoF2Remake.UI
             if (w == null)
             {
                 wantedName.text = wantedStatus.text = wantedBounty.text = "";
-                wantedText.text = T(174);
+                wantedText.text = Localization.Extra("missionsPickEntry", "Pick an entry from the list.");
                 Show(wantedMap, false);
                 return;
             }
@@ -376,7 +421,7 @@ namespace GoF2Remake.UI
             if (s == null)
             {
                 wantedName.text = wantedStatus.text = wantedBounty.text = "";
-                wantedText.text = Localization.Extra("pirateBoardEmpty", "No pirate activity has been reported. Check again after your next docking.");
+                wantedText.text = Localization.Extra("pirateBoardEmpty", "No pirate activity reported. Check after your next docking.");
                 Show(wantedMap, false);
                 return;
             }
@@ -409,7 +454,7 @@ namespace GoF2Remake.UI
                 case 2: return Localization.Extra("pirateTierHint2", "A small band. Expect light resistance.");
                 case 3: return Localization.Extra("pirateTierHint3", "A capable crew. Come prepared.");
                 case 4: return Localization.Extra("pirateTierHint4", "Heavily armed and well guarded. Bring a strong ship.");
-                default: return Localization.Extra("pirateTierHint5", "Extremely dangerous. Only the best-equipped pilots, or a squad, should take this on.");
+                default: return Localization.Extra("pirateTierHint5", "Extremely dangerous: for the best-equipped pilots or a squad.");
             }
         }
 

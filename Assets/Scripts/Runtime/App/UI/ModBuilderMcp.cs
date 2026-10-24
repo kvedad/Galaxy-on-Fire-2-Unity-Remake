@@ -1,7 +1,7 @@
 // ModBuilderMcp.cs
 // Remake-only: the Mod Builder's MCP server (Model Context Protocol, the way AI apps such as Claude Code, Claude Desktop or
 // ChatGPT reach outside tools), so an AI assistant can build a mod in the open builder: look up the game's and the mods'
-// content, read and write the project's entries and files, compile and validate quests, start a play test, read the log and
+// content, read and write the project's entries and files, compile and validate missions, start a play test, read the log and
 // take a screenshot (the tools: ModBuilderMcpTools). There is no AI in the game: the player's own assistant connects to it.
 //   where     the builder's "AI tools" tab (ModBuilderScreen.BuildAiPanels): on / off (off by default, remembered), the port,
 //             the token, the commands that connect Claude Code / Claude Desktop, what the AI did
@@ -428,6 +428,7 @@ namespace GoF2Remake.UI
                 {
                     string name = (string)m["params"]?["name"];
                     var args = m["params"]?["arguments"] as JObject ?? new JObject();
+                    name = FromOldNames(name, args);
                     var tool = Tools.FirstOrDefault(t => t.name == name);
                     if (tool == null) return Error(id, -32602, $"Unknown tool: {name}");
                     var job = new Job { id = id, tool = tool, args = args };
@@ -449,17 +450,24 @@ namespace GoF2Remake.UI
 
         const string Instructions =
             "The live project of the Galaxy on Fire 2 Remake's Mod Builder (a mod in the game's normal format). Read the modding " +
-            "guide first (Modding/ai/gof2-modding/SKILL.md in the game's repository; its reference.md / quests.md / quest.schema.json " +
+            "guide first (Modding/ai/gof2-modding/SKILL.md in the game's repository; its reference.md / missions.md / mission.schema.json " +
             "/ voices.md / events.md / guide.md for numbers and formats). Find the game's, this project's and other mods' content " +
             "with search_content (use the values it returns); read entries with list_entries / get_entries, write them with " +
             "put_entry (the same JSON as the mod files: ships.json, items.json, characters.json, systems.json, stations.json, " +
-            "interiors.json, blueprints.json, gameoptions.json, campaign.json, mod.json, events/<name>.gof2quest), files " +
-            "(images, models, audio) with write_file. Check with validate (and compile_quest for a quest); try it with " +
+            "interiors.json, blueprints.json, gameoptions.json, campaign.json, mod.json, events/<name>.gof2mission), files " +
+            "(images, models, audio) with write_file. Check with validate (and compile_mission for a mission); try it with " +
             "play_test, read get_log and take a screenshot. Every change is an undo step in the builder (the undo tool takes the " +
             "last one back). To see your work: view_model draws any model (game, project ship with its hardpoints, station, .glb) " +
             "from any side, view_texture / list_textures show textures, select_entry and view put an entry on the builder's screen " +
             "and aim its camera (with a screenshot); hardpoint places hardpoints onto the hull from a side. Also test_fly, " +
-            "weapon_range, engines, switch_hangar, and the projects (list_projects, create_project, open_project, export_mod). ";
+            "weapon_range, engines, switch_hangar, and the projects (list_projects, create_project, open_project, import_mod, export_mod). " +
+            "Audio: search_content kinds music / sound / voice give the game's track, sound and voice line names a file of the " +
+            "same name replaces (voices per language in voices/<code>/); any other name is new. A story character is replaced " +
+            "with replace_game_character; the game's .aem models convert on write_file; optimize shrinks big models and textures. " +
+            "A station's star map planet is stations.json mapTexture (a 2:1 map wrapped round the sphere) / mapRing; a sky that " +
+            "turns its top to each orbit's sun is skybox.sunAligned; a station's orbit level (station / jumpgate / arrival / asteroids / " +
+            "fog / sun / planet) is stations.json orbit and its map planet's place mapPlace (SKILL.md); a mission's wormhole step opens a wormhole whose destination " +
+            "may be a variable; play_test mode mission offers a bar mission in the Space Lounge to take as a player would. ";
 
         /// <summary>The instructions' line on the permission mode (builder_status says the current one).</summary>
         static string PermissionNote(Permissions p) => p switch
@@ -585,7 +593,7 @@ namespace GoF2Remake.UI
                 {
                     lock (waiting) waiting.Remove(c);
                     try { c.timedOut?.Invoke(); } catch (Exception e) { Debug.LogException(e); }
-                    c.Fail(Localization.Extra("mbMcpTimeout", "The game didn't answer in time (a scene still loading?). Ask builder_status."));
+                    c.Fail(Localization.Extra("mbMcpTimeout", "The game didn't answer in time (still loading?). Ask builder_status."));
                 }
             }
             for (int n = 0; n < 16 && jobs.TryDequeue(out var job); n++)
@@ -650,6 +658,20 @@ namespace GoF2Remake.UI
         }
 
         static string Str(JObject a, string k) => a[k] is JValue v && v.Type != JTokenType.Null ? v.ToString() : null;
+
+        /// <summary>The names from when the missions were called quests (a client's notes, an older guide): the tools
+        /// compile_quest / get_quest_schema, the entry kind "quests", the argument "quest", play_test's mode and search_content's
+        /// kind "quest". Returns the tool's name now; 'args' is changed in place.</summary>
+        static string FromOldNames(string name, JObject args)
+        {
+            if (name == "compile_quest") name = "compile_mission";
+            else if (name == "get_quest_schema") name = "get_mission_schema";
+            if (Str(args, "kind") == "quests") args["kind"] = "missions";
+            if (Str(args, "kind") == "quest" && name == "search_content") args["kind"] = "mission";
+            if (Str(args, "mode") == "quest") args["mode"] = "mission";
+            if (args["quest"] != null && args["mission"] == null) { args["mission"] = args["quest"]; args.Remove("quest"); }
+            return name;
+        }
         static int Int(JObject a, string k, int d) => a[k] is JValue v && (v.Type == JTokenType.Integer || v.Type == JTokenType.Float) ? (int)v : int.TryParse(Str(a, k), out int i) ? i : d;
     }
 }

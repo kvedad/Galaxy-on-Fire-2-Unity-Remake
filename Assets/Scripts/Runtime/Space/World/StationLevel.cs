@@ -69,6 +69,13 @@ namespace GoF2Remake.World
 
         [Header("Audio")]
         public AudioSource musicSource;
+
+        /// <summary>Remake: the Mod Builder plays a sound, voice line or track to choose it; the station's music fades out
+        /// meanwhile (0.3 s) and stays out 3 s after the last one (the user's request: the next one is often played right
+        /// after), then fades back in over a second. The station's own: gone with the scene.</summary>
+        public bool MusicHeld { get; set; }
+        float musicHold = 1f, musicHeldUntil;
+        const float MusicHoldAfter = 3f;
         [Tooltip("Indexed by StationTables.Music.")]
         public AudioClip[] music = new AudioClip[7];
         public AudioClip mainViewAmbience;
@@ -402,6 +409,44 @@ namespace GoF2Remake.World
             for (int i = 0; i < 3; i++) { driftSign[i] = Random.Range(0, 20) < 10; NextDriftLeg(i, Base(i)); }
         }
 
+        int captureSavedIndex = -1, captureSavedRace;
+        Modding.ModInteriors.Room captureSavedCustom;
+
+        /// <summary>Modified: HangarCubemapCapture's "every hangar" (an editor tool, Play mode): the hangar room built again as
+        /// hangar 'index' (0..3 the races', 7 / 8 the Valkyrie's) with its lighting for 'raceId' (ambient, fog), the
+        /// player's ship on its pad. RestoreHangar puts the station's own back.</summary>
+        public void RebuildHangarAs(int index, int raceId)
+        {
+            if (index < 0 || index >= StationTables.HangarRoom.Length || StationTables.HangarRoom[index] == null) return;
+            if (captureSavedIndex < 0) { captureSavedIndex = HangarIndex; captureSavedRace = Layout.raceId; captureSavedCustom = customHangar; }
+            if (View != StationView.Hangar) SetView(StationView.Hangar);
+            RebuildHangar(index, null, raceId);
+        }
+
+        /// <summary>Modified: the station's own hangar again after RebuildHangarAs.</summary>
+        public void RestoreHangar()
+        {
+            if (captureSavedIndex < 0) return;
+            RebuildHangar(captureSavedIndex, captureSavedCustom, captureSavedRace);
+            captureSavedIndex = -1;
+            captureSavedCustom = null;
+        }
+
+        void RebuildHangar(int index, Modding.ModInteriors.Room custom, int raceId)
+        {
+            traffic = null;
+            parkedShips.Clear();
+            if (hangarRoot != null) { hangarRoot.gameObject.SetActive(false); Destroy(hangarRoot.gameObject); }
+            HangarIndex = index;
+            customHangar = custom;
+            BuildHangar();
+            hangarRoot.gameObject.SetActive(View == StationView.Hangar);
+            int race = Layout.raceId;
+            Layout.raceId = raceId;
+            ApplyHangarLighting();
+            Layout.raceId = race;
+        }
+
         /// <summary>CutScene::replacePlayerShip 0xa53b4: after buying a ship, the new one on the turntable at its own height
         /// (the camera keeps the pivot of the ship the hangar was entered with).</summary>
         public void ReplacePlayerShip(int index)
@@ -684,6 +729,7 @@ namespace GoF2Remake.World
             if (prefab == null) { Debug.LogWarning($"StationLevel: no assembled prefab '{assembly}'"); return null; }
             var go = Instantiate(prefab, unityPos, rot, parent);
             go.name = label;
+            GoF2Remake.Visuals.AutoLods.FullDetail(go);
             foreach (var lod in go.GetComponentsInChildren<LODGroup>()) lod.ForceLOD(0);   // close-up room: full detail
             return go;
         }
@@ -1267,7 +1313,10 @@ namespace GoF2Remake.World
             if (View == StationView.Lounge && vosskBots != null) UpdateVosskBots(dtMs);
 
             if (View == StationView.Hangar) RefreshTurret(false);
-            if (musicSource != null) musicSource.volume = Settings.MusicVolume * GoF2Remake.World.SpaceHooks.SceneMusic;
+            if (MusicHeld) musicHeldUntil = Time.unscaledTime + MusicHoldAfter;
+            bool held = Time.unscaledTime < musicHeldUntil;
+            musicHold = Mathf.MoveTowards(musicHold, held ? 0f : 1f, Time.unscaledDeltaTime / (held ? 0.3f : 1f));
+            if (musicSource != null) musicSource.volume = Settings.MusicVolume * GoF2Remake.World.SpaceHooks.SceneMusic * musicHold;
             float atmoMs = Time.unscaledDeltaTime * 1000f;
             mainViewAtmo?.Update(atmoMs); loungeAtmo?.Update(atmoMs); hangarAtmo?.Update(atmoMs);
         }

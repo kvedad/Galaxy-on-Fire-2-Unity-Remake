@@ -258,7 +258,11 @@ namespace GoF2Remake.World
                 if (freeFlight && s.Race == Standing.Specter) continue;
                 // Remake (a player's report): a wreck held at its end (deadButSelectable: the Supernova's hidden-blueprint freighters, mods'
                 // derelicts) is nobody's target; the Terran one at Wah'norr drew the orbit's Vossk onto it (invulnerable decor).
-                foreach (var o in Ships) if (o != s && o.Race != s.Race && !o.Spec.deadButSelectable) s.enemies.Add(o.Target);
+                // Level::connectPlayers 0xcc330: race != shooter's race, or the shooter is a wingman (every other ship is in a
+                // wingman's list, so its shots hit same-race freighters and the battleship; Discord report 2026-10-19: escorts'
+                // EMP shots flew through big ships). Not the other wingmen (the original's stray hits on them: left out).
+                foreach (var o in Ships)
+                    if (o != s && (o.Race != s.Race || (s.IsWingman && !o.IsWingman)) && !o.Spec.deadButSelectable) s.enemies.Add(o.Target);
             }
         }
 
@@ -1036,7 +1040,8 @@ namespace GoF2Remake.World
             if (SupernovaCalm)
             {
                 bool target = Story.TargetStation == StationIndex
-                              || (Session.FreelanceMission != null && Session.FreelanceMission.type != MissionType.Empty && Session.FreelanceMission.target == StationIndex);
+                              || (Session.FreelanceMission != null && Session.FreelanceMission.type != MissionType.Empty && Session.FreelanceMission.target == StationIndex)
+                              || (SupernovaChallenge.Active && StationIndex == SupernovaChallenge.Station);   // 0xb7's mission targets Luur: 2242
                 return target ? (Session.CampaignMission < 0x6a ? sn?.mission102Loop : sn?.mission102Loop2) : sn?.gammaRayMusic;
             }
             if (StationIndex == 10 || StationIndex == 100) return assets.deepScienceMusic;

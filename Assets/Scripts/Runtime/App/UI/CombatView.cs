@@ -47,6 +47,7 @@ namespace GoF2Remake.UI
                                       gammaRow, gammaFill, speedPanel;
         readonly Label lockOre;
         readonly VisualElement[] arcs = new VisualElement[4];
+        readonly VisualElement arcBox, safeBox;   // the arcs' 0 x 0 box at the screen centre, the HUD's safe area
         readonly Texture2D[] lockFrames = new Texture2D[24];
         readonly Dictionary<Object, Marker> markers = new Dictionary<Object, Marker>();
         readonly Dictionary<string, Texture2D> textures = new Dictionary<string, Texture2D>();
@@ -69,14 +70,56 @@ namespace GoF2Remake.UI
 
         MarkerTextures FactionTextures(int faction)
         {
+            // Options > Accessibility "Colour-blind markers": the friendly images blue (MarkerTex), all looked up again.
+            bool cb = Settings.ColorblindMarkers;
+            if (cb != colorblind)
+            {
+                colorblind = cb;
+                for (int i = 0; i < factionTextures.Length; i++) factionTextures[i] = null;
+            }
             var t = factionTextures[faction];
             if (t != null) return t;
             string f = Faction[faction];
+            bool blue = cb && faction == 1;
             return factionTextures[faction] = new MarkerTextures
             {
-                bar = Tex($"ship_bar_{f}"), fill = Tex($"ship_fill_{f}"), bracket = Tex($"ship_bracket_{f}"),
-                ring = Tex($"ship_ring_{f}"), dot = Tex($"ship_dot_{f}"), openRing = Tex($"ship_ring_open_{f}"),
+                bar = MarkerTex($"ship_bar_{f}", blue), fill = MarkerTex($"ship_fill_{f}", blue), bracket = MarkerTex($"ship_bracket_{f}", blue),
+                ring = MarkerTex($"ship_ring_{f}", blue), dot = MarkerTex($"ship_dot_{f}", blue), openRing = MarkerTex($"ship_ring_open_{f}", blue),
             };
+        }
+
+        bool colorblind;
+
+        /// <summary>A marker image; 'blue': the green friendly one turned blue (red-green colour blindness reads green and red
+        /// alike, blue stands apart from both), made once from the GPU copy (the HUD images aren't readable).</summary>
+        Texture2D MarkerTex(string name, bool blue)
+        {
+            var src = Tex(name);
+            if (!blue || src == null) return src;
+            string key = "cb:" + name;
+            if (textures.TryGetValue(key, out var done)) return done;
+            var rt = RenderTexture.GetTemporary(src.width, src.height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            Graphics.Blit(src, rt);
+            var previous = RenderTexture.active;
+            RenderTexture.active = rt;
+            var t = new Texture2D(src.width, src.height, TextureFormat.RGBA32, false) { filterMode = src.filterMode, wrapMode = src.wrapMode, name = key };
+            t.ReadPixels(new Rect(0, 0, src.width, src.height), 0, 0);
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(rt);
+            var px = t.GetPixels32();
+            for (int i = 0; i < px.Length; i++)
+            {
+                var c = px[i];
+                byte g = c.g;
+                c.g = (byte)(g * 0.62f);          // green -> an azure blue, its brightness kept
+                c.b = (byte)Mathf.Max(c.b, g);
+                c.r = (byte)(c.r * 0.5f);
+                px[i] = c;
+            }
+            t.SetPixels32(px);
+            t.Apply(false, true);
+            textures[key] = t;
+            return t;
         }
 
         Texture2D Tex(string name)
@@ -107,6 +150,8 @@ namespace GoF2Remake.UI
             arcs[1] = root.Q("arcRight");
             arcs[2] = root.Q("arcTop");
             arcs[3] = root.Q("arcBottom");
+            arcBox = root.Q("hitArcs");
+            safeBox = root.Q("safeArea");
             foreach (var plate in statusPanel.Query(className: "status-plate").ToList()) Image(plate, Tex("status_plate"), false);
             Image(root.Q("shieldFrame"), Tex("status_shield_frame"), false);
             Image(root.Q("hullFrame"), Tex("status_hull_frame"), false);
@@ -132,6 +177,16 @@ namespace GoF2Remake.UI
         static void Place(VisualElement e, float x, float y) => e.style.translate = new Translate(x, y);
 
         /// <summary>Left / top for elements placed once (the hit arcs, which also flip by their scale).</summary>
+        /// <summary>The safe area around the hit arcs' centre box (panel units; the box sits at the screen's centre), or no
+        /// limit before the layout.</summary>
+        Rect ArcLimits()
+        {
+            if (arcBox == null || safeBox == null) return new Rect(-1e5f, -1e5f, 2e5f, 2e5f);
+            Rect s = safeBox.worldBound, c = arcBox.worldBound;
+            if (float.IsNaN(s.width) || s.width <= 0f || float.IsNaN(c.x)) return new Rect(-1e5f, -1e5f, 2e5f, 2e5f);
+            return Rect.MinMaxRect(s.xMin - c.x, s.yMin - c.y, s.xMax - c.x, s.yMax - c.y);
+        }
+
         static void PlaceFixed(VisualElement e, float x, float y)
         {
             e.style.left = x;
@@ -279,33 +334,57 @@ namespace GoF2Remake.UI
 
         static string RaceName(int race) => race switch
         {
-            >= 0 and <= 3 => Localization.Get(406 + race),
-            8 => Localization.Get(414),
-            9 => Localization.Get(415),
-            _ => "???",
+            >= 0 and <= 9 => Localization.Get(406 + race),   // the four races, the minor ones, pirates, the Void
+            _ => Localization.Get(416),                     // the Specters: the original's own "???"
         };
+
+        // The camera as Project needs it, read once a frame (CameraFor): the per-marker camera calls (WorldToScreenPoint,
+        // WorldToViewportPoint, its transform, Screen's size, the panel's size: seven native calls a ship) were most of
+        // the HUD's time with 860 ships about (20 fleet battles).
+        Camera viewCam;
+        int viewFrame = -1;
+        Matrix4x4 viewProj, camToLocal;
+        Vector3 camPos;
+        Rect camPixels;
+        Vector2 screenSize, panelSize;
+
+        void CameraFor(Camera cam)
+        {
+            if (viewFrame == Time.frameCount && viewCam == cam) return;
+            viewFrame = Time.frameCount;
+            viewCam = cam;
+            viewProj = cam.projectionMatrix * cam.worldToCameraMatrix;
+            var tr = cam.transform;
+            camToLocal = tr.worldToLocalMatrix;
+            camPos = tr.position;
+            camPixels = cam.pixelRect;
+            screenSize = new Vector2(Screen.width, Screen.height);
+            panelSize = layer.panel.visualTree.layout.size;
+        }
 
         bool Project(Camera cam, Vector3 world, Vector2 origin, Vector2 centre, out Vector2 p, out bool near)
         {
-            var sp = cam.WorldToScreenPoint(world);
-            bool onScreen = sp.z > 0f && sp.x >= 0f && sp.y >= 0f && sp.x <= Screen.width && sp.y <= Screen.height;
-            var d = (world - cam.transform.position) / M;
+            CameraFor(cam);
+            // Camera.WorldToScreenPoint / WorldToViewportPoint: the clip position, its depth the eye distance (w).
+            var c = viewProj * new Vector4(world.x, world.y, world.z, 1f);
+            float w = c.w;
+            float vx = w != 0f ? c.x / w * 0.5f + 0.5f : 0f, vy = w != 0f ? c.y / w * 0.5f + 0.5f : 0f;
+            float sx = camPixels.x + vx * camPixels.width, sy = camPixels.y + vy * camPixels.height;
+            bool onScreen = w > 0f && sx >= 0f && sy >= 0f && sx <= screenSize.x && sy <= screenSize.y;
+            var d = (world - camPos) / M;
             near = Mathf.Abs(d.x) <= NearUnits && Mathf.Abs(d.y) <= NearUnits && Mathf.Abs(d.z) <= NearUnits;
-            if (onScreen)
-            {
-                // Viewport -> panel (the camera fills the screen): exact on screen and in offscreen captures.
-                var v = cam.WorldToViewportPoint(world);
-                var size = layer.panel.visualTree.layout.size;
-                p = new Vector2(v.x * size.x, (1f - v.y) * size.y) - origin;
-            }
-            else p = OffScreen(cam, world, centre);
+            // Viewport -> panel (the camera fills the screen): exact on screen and in offscreen captures.
+            if (onScreen) p = new Vector2(vx * panelSize.x, (1f - vy) * panelSize.y) - origin;
+            else p = OffScreen(camToLocal, world, centre);
             return onScreen;
         }
 
         /// <summary>Radar::update for an object not on screen: its direction clamped onto the radar ellipse.</summary>
-        static Vector2 OffScreen(Camera cam, Vector3 world, Vector2 centre)
+        static Vector2 OffScreen(Camera cam, Vector3 world, Vector2 centre) => OffScreen(cam.transform.worldToLocalMatrix, world, centre);
+
+        static Vector2 OffScreen(Matrix4x4 camToLocal, Vector3 world, Vector2 centre)
         {
-            var local = cam.transform.InverseTransformPoint(world);
+            var local = camToLocal.MultiplyPoint3x4(world);
             var d = new Vector2(local.x, -local.y);
             if (d.sqrMagnitude < 1e-6f) d = Vector2.down;
             float k = Mathf.Sqrt(d.x * d.x / (EllipseX * EllipseX) + d.y * d.y / (EllipseY * EllipseY));
@@ -377,7 +456,7 @@ namespace GoF2Remake.UI
                 m.distance.EnableInClassList("combat-label--far", !locked);
                 for (int i = 0; i < 3; i++) m.distance.EnableInClassList(LabelFaction[i], !locked && i == faction);
             }
-            float units = (world - cam.transform.position).magnitude / M;
+            float units = (world - camPos).magnitude / M;
             int key = FarShipMarkers.DistanceKey(units);
             if (key != m.distanceKey)
             {
@@ -482,7 +561,7 @@ namespace GoF2Remake.UI
             if (tex != null) Place(m.dot, p.x - tex.width / 2f, p.y - tex.height / 2f);
             if (onScreen && locked)
             {
-                m.distance.text = Navigation.FormatDistance((world - cam.transform.position).magnitude / M);
+                m.distance.text = Navigation.FormatDistance((world - camPos).magnitude / M);
                 m.distanceKey = int.MinValue;
                 Place(m.distance, p.x - 61f, p.y + 61f);
             }
@@ -519,12 +598,16 @@ namespace GoF2Remake.UI
                 var a = arcs[i];
                 Image(a, tex);
                 float w = tex.width, h = tex.height;
+                // Remake: each image kept inside the safe area. Centred on the ellipse (491 units up / down) the 374-unit top
+                // and bottom arcs reach 678 units out, their glow (the outer half) past a 1080-unit screen's 540 (a player's
+                // report: mostly off screen on a phone); the sides' 819 of 960 fit at 16:9, not on a narrower screen.
+                var lim = ArcLimits();
                 switch (i)
                 {
-                    case 0: PlaceFixed(a, -EllipseX - w / 2f, -h / 2f); a.style.scale = new Scale(new Vector3(-1f, 1f, 1f)); break;
-                    case 1: PlaceFixed(a, EllipseX - w / 2f, -h / 2f); break;
-                    case 2: PlaceFixed(a, -w / 2f, -EllipseY - h / 2f); break;
-                    default: PlaceFixed(a, -w / 2f, EllipseY - h / 2f); a.style.scale = new Scale(new Vector3(1f, -1f, 1f)); break;
+                    case 0: PlaceFixed(a, Mathf.Max(-EllipseX - w / 2f, lim.xMin), -h / 2f); a.style.scale = new Scale(new Vector3(-1f, 1f, 1f)); break;
+                    case 1: PlaceFixed(a, Mathf.Min(EllipseX - w / 2f, lim.xMax - w), -h / 2f); break;
+                    case 2: PlaceFixed(a, -w / 2f, Mathf.Max(-EllipseY - h / 2f, lim.yMin)); break;
+                    default: PlaceFixed(a, -w / 2f, Mathf.Min(EllipseY - h / 2f, lim.yMax - h)); a.style.scale = new Scale(new Vector3(1f, -1f, 1f)); break;
                 }
             }
         }

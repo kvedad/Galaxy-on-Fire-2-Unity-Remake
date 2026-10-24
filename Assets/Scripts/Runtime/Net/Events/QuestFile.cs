@@ -26,14 +26,15 @@ namespace GoF2Remake.Events
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]   // read-only tables
     public static class QuestFile
     {
-        public const string Extension = "gof2quest";
+        /// <summary>The file's extension and its "format"; Legacy* = from when these were called quests (still read).</summary>
+        public const string Extension = "gof2mission", LegacyExtension = "gof2quest", Format = "gof2mission", LegacyFormat = "gof2quest";
 
-        /// <summary>A .gof2quest file's text?</summary>
+        /// <summary>A .gof2mission (or old .gof2quest) file's text?</summary>
         public static bool Is(string text)
         {
             if (string.IsNullOrEmpty(text)) return false;
             string t = text.TrimStart();
-            return t.StartsWith("{") && t.Contains("\"gof2quest\"");
+            return t.StartsWith("{") && (t.Contains("\"" + Format + "\"") || t.Contains("\"" + LegacyFormat + "\""));
         }
 
         /// <summary>The players a step speaks to by default: everyone the run covers (single player: the player; a bar
@@ -114,6 +115,10 @@ namespace GoF2Remake.Events
                     int min = 1, max = 4;
                     if (o["players"] is JArray pl && pl.Count >= 2) { min = Math.Max(1, (int)pl[0]); max = Math.Max(min, (int)pl[1]); }
                     Line($"mission players {min} {max}");
+                    if (o["chance"] is JValue ch && (ch.Type == JTokenType.Integer || ch.Type == JTokenType.Float))
+                        Line("mission chance " + Math.Max(0, Math.Min(100, (int)Math.Round((double)ch))));
+                    string takers = Str(o, "takers").ToLowerInvariant();
+                    if (takers == "station" || takers == "any") Line("mission takers " + takers);
                     var stations = Refs(o["stations"]);
                     if (stations.Count > 0) Line("mission stations " + string.Join(", ", stations));
                 }
@@ -515,7 +520,7 @@ namespace GoF2Remake.Events
         public static JObject FromScript(string script, string fallbackTitle, List<string> notes, Dictionary<string, (float x, float y)> places)
         {
             var placed = new HashSet<string>();
-            var o = new JObject { ["format"] = "gof2quest" };
+            var o = new JObject { ["format"] = Format };
             var variables = new JArray();
             var root = new JArray();
             // The open blocks: the list steps go into, what opened it ("if", "else", "ask" ...), its step.
@@ -585,6 +590,8 @@ namespace GoF2Remake.Events
                                 if (f.Length >= 1 && int.TryParse(f[0], out int lo)) o["players"] = new JArray(lo, f.Length > 1 && int.TryParse(f[1], out int hi) ? hi : lo);
                                 break;
                             }
+                            case "chance": if (int.TryParse(v.TrimEnd('%'), out int pc)) o["chance"] = pc; break;
+                            case "takers": if (v == "station" || v == "any") o["takers"] = v; break;
                             case "stations":
                                 o["stations"] = new JArray(v.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).Select(x => int.TryParse(x, out int i) ? (JToken)i : x));
                                 break;
@@ -894,6 +901,19 @@ namespace GoF2Remake.Events
                     return w.Count == 1 && IsNumberOrExpr(w[0]) ? new JObject { ["type"] = "credits", ["amount"] = NumOrText(w[0]) } : null;
                 case "restrict":
                     return w.Count == 1 && new[] { "jumps", "docking", "all", "off" }.Contains(w[0]) ? new JObject { ["type"] = "restrict", ["what"] = w[0] } : null;
+                case "wormhole":
+                {
+                    if (w.Count == 1 && (w[0] == "close" || w[0] == "off")) return St("wormhole");
+                    int to = w.IndexOf("to");
+                    if (to != 1 && to != 4) return null;
+                    var st = new JObject { ["type"] = "wormhole", ["station"] = RefToken(w[0]) };
+                    if (to == 4) { if (!w.Skip(1).Take(3).All(IsNumberOrExpr)) return null; st["at"] = string.Join(" ", w.Skip(1).Take(3)); }
+                    int end = w.Count;
+                    if (w.Count >= to + 4 && w[w.Count - 2] == "for" && IsNumberOrExpr(w[w.Count - 1])) { st["seconds"] = NumOrText(w[w.Count - 1]); end = w.Count - 2; }
+                    if (end != to + 2) return null;
+                    if (w[to + 1] == "void") st["void"] = true; else st["to"] = RefToken(w[to + 1]);
+                    return st;
+                }
                 case "waypoint":
                     if (w.Count == 1 && w[0] == "off") return St("waypoint");
                     return w.Count == 4 && w.Skip(1).All(IsNumberOrExpr) ? new JObject { ["type"] = "waypoint", ["station"] = RefToken(w[0]), ["at"] = string.Join(" ", w.Skip(1)) } : null;

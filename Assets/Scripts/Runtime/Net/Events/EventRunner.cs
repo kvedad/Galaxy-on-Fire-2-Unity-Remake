@@ -48,7 +48,11 @@
 //   mission <key> <value>         a bar mission's details (the Start node's Mission settings; not run): title, offer (the
 //                                 visitor's offer text, "\n" new lines), client (the speaker, as /dialog's), reward (credits,
 //                                 an expression), players <min> <max>, stations (offered at: numbers / names, commas; none =
-//                                 every station). An event with a title is offered in the multiplayer Space Lounges
+//                                 every station), chance (the percentage of those bars offering it, default 35; each
+//                                 station decides for 30 minutes), takers universe | station | any (one team at a time in
+//                                 the universe, the default; one per station, that bar dropping it for 30 minutes; or any
+//                                 number, at one station too). An event with a
+//                                 title is offered in the multiplayer Space Lounges
 //                                 (EventMissions) and runs for the players who took it
 //   complete [reward] [| title]   pays the reward (an expression, else the mission's) split evenly across the run's players
 //                                 (the reward box, title default "Mission accomplished!"), then ends the run
@@ -182,14 +186,22 @@ namespace GoF2Remake.Events
 
 
         static readonly string[] Triggers = { "died", "docked", "launched", "joined", "left", "entered", "kill", "cleared", "pvpkill", "respawned", "near", "hacked" };
-        static readonly string[] MissionKeys = { "title", "offer", "client", "reward", "players", "stations", "kind", "starts" };
+        static readonly string[] MissionKeys = { "title", "offer", "client", "reward", "players", "stations", "kind", "starts", "chance", "takers" };
 
         /// <summary>A bar mission's details: the Start node's Mission settings (the "mission &lt;key&gt; &lt;value&gt;" lines).</summary>
         public sealed class MissionInfo
         {
+            public const int DefaultChance = 35;
+
             public string name = "", title = "", offer = "", client = "", reward = "", starts = "";
             public readonly List<int> stations = new List<int>();   // offered at (none: at every station)
             public int minPlayers = 1, maxPlayers = 4;
+            // "mission chance": the percentage of a station's bars offering it (EventMissions.Offered: decided for a while per
+            // station, so docking again doesn't roll it anew); 100 = every bar, as before the setting.
+            public int chance = DefaultChance;
+            // "mission takers universe | station | any": one team at a time anywhere (EventMissions offers it nowhere while a team
+            // is on it, StartMission refuses a second), one per station (taken out of that bar only), or any number of teams.
+            public EventMissionTakers takers;
             public int kind = -1;   // "mission kind": 0 event, 1 bar mission, 2 quest (-1: not given, a bar mission when titled)
             public bool builtIn;    // one of the game's own examples (Resources/GoF2Events): multiplayer only
             public bool IsMission => kind == 1 || (kind < 0 && title.Length > 0);
@@ -216,6 +228,7 @@ namespace GoF2Remake.Events
             runs.Clear();
             ticking = executing = null;
             NetCommands.Scope = null;
+            EventMissions.ResetOffers();
         }
 
         /// <summary>Session.ResetNewGame (a new game, a load, the main menu): single player's runs go with the game they
@@ -264,6 +277,7 @@ namespace GoF2Remake.Events
         internal static void NoteRulesSet() { if (executing != null) executing.eventRules = true; }
         internal static void NoteFlightSet() { if (executing != null) executing.eventFlight = true; }
         internal static void NoteWaypointSet() { if (executing != null) executing.eventWaypoint = true; }
+        internal static void NoteWormholeSet() { if (executing != null) executing.eventWormhole = true; }
         internal static void NoteCutsceneSet() { if (executing != null) executing.eventCutscene = true; }
         internal static void NoteFadeSet() { if (executing != null) executing.eventFade = true; }
 
@@ -351,6 +365,13 @@ namespace GoF2Remake.Events
         /// <summary>Server: every event graph with mission details (its Start node's Mission title).</summary>
         internal static List<MissionInfo> MissionGraphs() => AllGraphs().FindAll(m => m.IsMission);
 
+        /// <summary>The graph 'name' is a bar mission (offered in the Space Lounges).</summary>
+        public static bool IsBarMission(string name)
+        {
+            graphCache = null;   // the Mod Builder may have just written it
+            return MissionGraphs().Exists(m => m.name == name);
+        }
+
         /// <summary>Single player: every quest graph (its Start node's kind Quest).</summary>
         internal static List<MissionInfo> QuestGraphs() => AllGraphs().FindAll(m => m.IsQuest && !m.builtIn);
 
@@ -362,9 +383,14 @@ namespace GoF2Remake.Events
             string text = Load(name, out string from, out string error);
             if (text == null) return string.Format(X("mpEventMissing", "No event \"{0}\". /event list shows them."), name);
             if (error != null) return string.Format(X("mpEventError", "{0}: {1}"), name, error);
+            if (MissionTaken(name) && (MissionGraphs().Find(m => m.name == name)?.takers ?? EventMissionTakers.OneInUniverse) == EventMissionTakers.OneInUniverse)
+                return X("mpEventMissionTakenBy", "Another squad is already on this mission.");
             string answer = Start(name, text, from, by, new Dictionary<string, double>(), team, station, record);
             return MissionOf(by != null ? by.OwnerClientId : ulong.MaxValue) != null ? null : answer;
         }
+
+        /// <summary>Server: a team is on the bar mission 'name' now.</summary>
+        internal static bool MissionTaken(string name) => runs.Exists(r => r.team != null && !r.ended && r.running == name);
 
         /// <summary>Server: a team member's run (the mission's name and info) for a player joining late / asking again.</summary>
         internal static MissionInfo MissionInfoOf(ulong client) => MissionOf(client)?.info;
@@ -406,9 +432,9 @@ namespace GoF2Remake.Events
         /// startquest): a quest under way or done isn't an error. The reason when it can't (null: started).</summary>
         public static string StartQuest(string name, bool quiet = false)
         {
-            if (!EventHost.Local) return X("mpEventQuestSingle", "Quests run in single player only.");
+            if (!EventHost.Local) return X("mpEventQuestSingle", "Story missions run in single player only.");
             if (Session.GraphQuestsDone.Contains(name) || Session.GraphQuests.Exists(q => q.name == name))
-                return quiet ? null : string.Format(X("mpEventQuestTaken", "The quest {0} is under way or done."), name);
+                return quiet ? null : string.Format(X("mpEventQuestTaken", "The mission {0} is under way or done."), name);
             string text = Load(name, out string from, out string error);
             if (text == null) return string.Format(X("mpEventMissing", "No event \"{0}\". /event list shows them."), name);
             if (error != null) return string.Format(X("mpEventError", "{0}: {1}"), name, error);
@@ -574,8 +600,8 @@ namespace GoF2Remake.Events
         /// <summary>An event graph file's extension; LegacyExtension = the files from when the graphs were multiplayer only
         /// (read everywhere, the Editor renames them, EventGraphImporter).</summary>
         public const string GraphExtension = "gof2event", LegacyExtension = "gof2netevent";
-        /// <summary>The graphs' file extensions, the Mod Builder's quests (QuestFile, .gof2quest) last.</summary>
-        static readonly string[] Extensions = { GraphExtension, LegacyExtension, QuestFile.Extension };
+        /// <summary>The graphs' file extensions, the Mod Builder's missions (QuestFile, .gof2mission, the old .gof2quest) last.</summary>
+        static readonly string[] Extensions = { GraphExtension, LegacyExtension, QuestFile.Extension, QuestFile.LegacyExtension };
         /// <summary>The built-in events' Resources folder.</summary>
         const string BuiltIn = "GoF2Events";
 
@@ -621,7 +647,8 @@ namespace GoF2Remake.Events
                 catch (Exception) { }
             }
             foreach (var mod in Modding.ModManager.Active)
-                foreach (string f in mod.Source.FilesIn("events", "." + GraphExtension, "." + LegacyExtension, "." + QuestFile.Extension)) names.Add(Path.GetFileNameWithoutExtension(f));
+                foreach (string f in mod.Source.FilesIn("events", "." + GraphExtension, "." + LegacyExtension, "." + QuestFile.Extension, "." + QuestFile.LegacyExtension))
+                    names.Add(Path.GetFileNameWithoutExtension(f));
             foreach (var a in Resources.LoadAll<TextAsset>(BuiltIn)) names.Add(a.name);
             return new List<string>(names);
         }
@@ -749,6 +776,13 @@ namespace GoF2Remake.Events
                         info.kind = v.Equals("quest", StringComparison.OrdinalIgnoreCase) ? 2 : v.Equals("mission", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
                         break;
                     case "starts": info.starts = v; break;
+                    case "takers":
+                        info.takers = v.Equals("station", StringComparison.OrdinalIgnoreCase) ? EventMissionTakers.OnePerStation
+                                    : v.Equals("any", StringComparison.OrdinalIgnoreCase) ? EventMissionTakers.Anyone : EventMissionTakers.OneInUniverse;
+                        break;
+                    case "chance":
+                        if (double.TryParse(v.TrimEnd('%'), NumberStyles.Float, CultureInfo.InvariantCulture, out double pc)) info.chance = Mathf.Clamp((int)Math.Round(pc), 0, 100);
+                        break;
                     case "stations":
                         foreach (string part in v.Split(','))
                             if (part.Trim().Length > 0 && NetTeleport.ParseStation(part.Trim(), out int st, out string left) && left.Length == 0 && st >= 0) info.stations.Add(st);
@@ -1039,12 +1073,12 @@ namespace GoF2Remake.Events
             public readonly HashSet<ulong> team;
             public readonly int station;   // a mission: where it was taken (-1: none)
             public bool ended;
-            public bool eventPvp, eventRespawn, eventRules, eventWaypoint, eventCutscene, eventFade, eventFlight;   // it turned the free for all on / set respawn points / restricted travel / a waypoint
+            public bool eventPvp, eventRespawn, eventRules, eventWaypoint, eventWormhole, eventCutscene, eventFade, eventFlight;   // it turned the free for all on / set respawn points / restricted travel / a waypoint
             public GraphQuestState record;   // single player's lasting run (a quest, a bar mission): what a save keeps (null: none)
             public string objective = "";
             public int target = -1;
             public readonly HashSet<int> quiet = new HashSet<int>();
-            bool succeeded;
+            bool succeeded, failed;
             readonly ulong starter;
             readonly Dictionary<string, double> settings;
             readonly Dictionary<int, PendingAsk> asks = new Dictionary<int, PendingAsk>();
@@ -1136,6 +1170,7 @@ namespace GoF2Remake.Events
                         if (eventRules) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Rules, 0, 0, 0, "", "Server");
                         if (eventFlight) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Flight, -1, 0, 0, "", "Server");
                         if (eventWaypoint) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Waypoint, 0, 0, 0, "off", "Server");
+                        if (eventWormhole) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Wormhole, 0, 0, 0, "close", "Server");
                         if (eventCutscene) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Cutscene, 0, 0, 0, "end", "Server");
                         if (eventFade) EventHost.Send(p.OwnerClientId, NetAdmin.Order.Fade, 0, 0, 0, "clear", "Server");
                     }
@@ -1145,7 +1180,7 @@ namespace GoF2Remake.Events
                 threads.Clear();
                 handlers.Clear();
                 current = null;
-                if (team != null) EventMissions.Ended(team, running, succeeded);
+                if (team != null) EventMissions.Ended(team, running, succeeded ? EventMissions.Outcome.Success : failed ? EventMissions.Outcome.Failure : EventMissions.Outcome.Stopped);
             }
 
             public void SetVar(string name, double value) => vars[name] = value;
@@ -1198,7 +1233,7 @@ namespace GoF2Remake.Events
                             case Op.Command:
                             {
                                 string word = s.a.Split(' ')[0].ToLowerInvariant();
-                                if (word == "music" || word == "waypoint" || word == "respawn" || word == "restrict" || word == "flightstyle")
+                                if (word == "music" || word == "waypoint" || word == "wormhole" || word == "respawn" || word == "restrict" || word == "flightstyle")
                                     try { RunCommand(Fill(s.a)); } catch (Exception e) { Debug.LogWarning($"Event {running}: {e.Message}"); }
                                 break;
                             }
@@ -1312,6 +1347,7 @@ namespace GoF2Remake.Events
                     return;
                 }
                 if (record != null) { Session.GraphQuests.Remove(record); record = null; }   // a bar mission: lost
+                failed = true;
                 var was = executing;
                 executing = this;
                 try

@@ -464,7 +464,7 @@ namespace GoF2Remake.World
                     gun = new Gun(item, gunBase, NpcTables.GunReloadMs, NpcTables.GunPool,
                                       NpcTables.GunLifetimeMs, gunSpeed) { owner = Target };
                     rig = new GunRig(gun, WeaponFx.Load(item.index), fxRoot, null, 2);
-                    gun.Hit += OnGunHit;
+                    WireGun(gun);
                 }
             }
             route = (spec.route ?? Route.DefaultPatrol(spec.race)).Clone();
@@ -472,7 +472,10 @@ namespace GoF2Remake.World
                  : spec.missionCrate >= 0 ? new List<ItemStack> { new ItemStack(spec.missionCrate, 1) }
                  : spec.noLoot ? new List<ItemStack>() : RollLoot();
             if (spec.lootItem >= 0 && spec.extraLoot != null)   // remake: a pirate outpost's crate by its tier
+            {
                 foreach (var st in spec.extraLoot) if (st != null && st.amount > 0) loot.Add(new ItemStack(st.item, st.amount));
+                multiKindLoot = true;
+            }
 
             sfx = gameObject.AddComponent<AudioSource>();
             Setup3D(sfx);
@@ -583,7 +586,7 @@ namespace GoF2Remake.World
                 rig = turretCore.Rig;
                 gun.owner = Target;
                 gun.damage *= Spec.gunFactor;   // gunFactor: the remake's CapitalShips
-                gun.Hit += OnGunHit;
+                WireGun(gun);
                 turretShot = turretFx.shot != null ? turretFx.Shot : null;
                 return;
             }
@@ -611,7 +614,7 @@ namespace GoF2Remake.World
                 int look = sentry == 1 ? 2 : sentry == 2 ? 20 : 14;   // Gun::setIndex 2 / 0x14 / 0xe
                 gun = new Gun(db.Item(look) ?? sentryItem, (int)dmg, sentryItem.Attr(11, 430), NpcTables.GunPool, sentryItem.Attr(12, 1000), speedU) { owner = Target };
                 rig = new GunRig(gun, WeaponFx.Load(look), fxRootRef, turretCore.GunNode, 2);
-                gun.Hit += OnGunHit;
+                WireGun(gun);
                 turretCore.SetGun(gun, rig);
                 return;
             }
@@ -622,7 +625,7 @@ namespace GoF2Remake.World
                 gun = new Gun(item, gunBase, NpcTables.GunReloadMs, NpcTables.GunPool,
                                   Spec.capitalEnhanced ? World.CapitalShips.TurretLifetimeMs : NpcTables.GunLifetimeMs, gunSpeed) { owner = Target };
                 rig = new GunRig(gun, WeaponFx.Load(item.index), fxRootRef, turretCore.GunNode, 2);
-                gun.Hit += OnGunHit;
+                WireGun(gun);
                 turretCore.SetGun(gun, rig);
             }
         }
@@ -633,6 +636,7 @@ namespace GoF2Remake.World
         {
             turretPicking = new TurretTargeting(TurretTargeting.Rule.Timed, TurretRangeUnits)
             {
+                boundFactor = 0.3f,   // Measure: at least the distance to the target's sphere, x0.3 for a turret hunter
                 Candidate = e => Valid(e) && !e.cloaked   // PlayerTurret::handleTurret: no aiming at a cloaked target
                     && (PlayerOwned ? !e.isPlayer && e.isShip && e.hostileToPlayer
                         : e.isPlayer ? Target.hostileToPlayer : e.isShip && e.race >= 0 && Standing.RacesHostile(e.race, Race)),
@@ -654,8 +658,8 @@ namespace GoF2Remake.World
             if (turretPicking.JustPicked) turretTargetFixed = target != null && IsTurretTarget(target);
             if (target == null || target.cloaked) return;   // handleTurret: no turning toward a cloaked target
             var at = Spec.capitalEnhanced && target.boxes != null && target.boxes.Length > 0 ? TurretAimPoint(target, turretCore.GunPosition)
-                   : turretTargetFixed ? target.transform.position
-                   : TurretTargeting.LeadPoint(target);
+                   : turretTargetFixed ? AimAt(target, dtMs)
+                   : TurretTargeting.LeadPoint(target) + (AimAt(target, dtMs) - target.transform.position);   // led, at a spot on it
             bool aligned = turretCore.StepToward(at, dtMs);
             if (turretCore.Aim.LimitHit) { turretPicking.LimitHit(dtMs); return; }   // out of reach: dropped at the next pick
             if (!aligned || !shootingEnabled) return;
@@ -1041,10 +1045,10 @@ namespace GoF2Remake.World
             var item = db.Item(itemIndex);
             if (item == null || IsFreighter || IsFixed) return;
             rig?.HideAll();
-            if (gun != null) gun.Hit -= OnGunHit;
+            if (gun != null) { gun.Hit -= OnGunHit; gun.AreaHit -= HitByBlast; }
             gun = MakeGun(item, gunBase * damageFactor);
             rig = new GunRig(gun, WeaponFx.Load(item.index), fxRootRef, IsTurret ? turretCore?.GunNode : null, 2);
-            gun.Hit += OnGunHit;
+            WireGun(gun);
             turretCore?.SetGun(gun, rig);
         }
 
@@ -1246,6 +1250,12 @@ namespace GoF2Remake.World
             }
         }
 
+        /// <summary>A fleet battle fighter's nearest pick (UpdateTargetingLocal) is made again after this long (ms, randomised down
+        /// to half, so the ships' scans spread over the frames).</summary>
+        const float NearestHoldMs = 800f;
+        float nearestHoldMs;
+        Target heldNearest;
+
         void UpdateTargetingLocal()
         {
             int n = enemies.Count;
@@ -1292,16 +1302,37 @@ namespace GoF2Remake.World
                 Vector3 centre = Vector3.zero;
                 float reach = 0f;
                 bool leash = nearest && CapitalShip.BattleArea(Spec.capitalHost, out centre, out reach);
-                float best = float.MaxValue;
-                for (int i = 1; i < n; i++)
+                // Remake (performance, 2026-10-22): the nearest pick is held for NearestHoldMs while it can still be taken,
+                // then made again: every fighter of a fleet battle scanned every enemy's hull every frame (20 fleet battles,
+                // ~600 fighters: 20 ms of an 80 ms frame).
+                nearestHoldMs -= Time.deltaTime * 1000f;
+                int held = targetIdx;
+                if (nearest && nearestHoldMs > 0f && held > 0 && held < n && (object)enemies[held] == heldNearest && Pursuable(heldNearest)
+                    && Standing.RacesHostile(Race, heldNearest.race)
+                    && (!leash || (heldNearest.transform.position - centre).sqrMagnitude <= reach * reach))
+                { idx = held; attacking = true; }
+                else
                 {
-                    var e = enemies[i];
-                    if (!Pursuable(e)) continue;
-                    if (!Standing.RacesHostile(Race, e.race)) continue;
-                    if (!nearest) { idx = i; attacking = true; break; }
-                    if (leash && (e.transform.position - centre).sqrMagnitude > reach * reach) continue;
-                    float d = (e.NearestPoint(transform.position) - transform.position).sqrMagnitude;
-                    if (d < best) { best = d; idx = i; attacking = true; }
+                    float best = float.MaxValue;
+                    var at = transform.position;
+                    int frame = Time.frameCount;
+                    for (int i = 1; i < n; i++)
+                    {
+                        var e = enemies[i];
+                        if ((object)e == null || !Standing.RacesHostile(Race, e.race)) continue;
+                        if (!nearest) { if (!Pursuable(e)) continue; idx = i; attacking = true; break; }
+                        // The cheap tests first, from the target's sphere (Target.BroadSphere, measured once a frame): the
+                        // leash on its centre, and none of it is nearer than its centre less its reach, so a ship that can't
+                        // beat the best so far needs neither the engine's checks (Pursuable) nor its hull's nearest point.
+                        float r = e.BroadSphere(frame, out var c);
+                        if (r < 0f) continue;   // destroyed
+                        if (leash && (c - centre).sqrMagnitude > reach * reach) continue;
+                        float bound = Mathf.Max(0f, (c - at).magnitude - r);
+                        if (bound * bound >= best || !Pursuable(e)) continue;
+                        float d = (e.NearestPoint(at) - at).sqrMagnitude;
+                        if (d < best) { best = d; idx = i; attacking = true; }
+                    }
+                    if (nearest) { heldNearest = idx > 0 ? enemies[idx] : null; nearestHoldMs = Random.Range(NearestHoldMs * 0.5f, NearestHoldMs); }
                 }
             }
             targetIdx = idx;
@@ -1394,17 +1425,37 @@ namespace GoF2Remake.World
 
         Vector3 targetPos;
 
+        // Remake (the user's request 2026-10-22): where on the target's model this ship aims (Target.AimSpot), a new spot
+        // every 1.5-3.5 s and with every new target; the original aims at the centre.
+        Target aimFor;
+        int aimSpot;
+        float aimMs;
+
+        Vector3 AimAt(Target t, float dtMs)
+        {
+            if (t != aimFor || (aimMs -= dtMs) <= 0f)
+            {
+                aimFor = t;
+                aimSpot = UnityEngine.Random.Range(0, int.MaxValue);
+                aimMs = UnityEngine.Random.Range(1500f, 3500f);
+            }
+            return t.AimSpot(aimSpot);
+        }
+
         /// <summary>§5.4 fire, turn, bank, move.</summary>
         void Steer(float dtMs)
         {
-            var dir = targetPos - transform.position;
+            // Turned and fired at a spot on the target's model (AimAt); the break-off range measured to its centre.
+            var aimPos = attacking && !followingWaypoint && target != null ? AimAt(target, dtMs) : targetPos;
+            var dir = aimPos - transform.position;
             // PlayerFighter::update's fly state: the player docked at an object (PlayerEgo::isDockedToDockingPoint) is circled
             // at +-12000 instead of +-8000, and not fired at while it is above the ship (0xf2cfa).
             bool dockedPlayer = target != null && target.isPlayer && ObjectDocking.PlayerDocked;
             if (target != null && !followingWaypoint)
             {
                 float r = (dockedPlayer ? 12000f : NpcTables.BreakOffRange) * M;
-                if (Mathf.Abs(dir.x) < r && Mathf.Abs(dir.y) < r && Mathf.Abs(dir.z) < r) dir = transform.right;
+                var toCentre = targetPos - transform.position;
+                if (Mathf.Abs(toCentre.x) < r && Mathf.Abs(toCentre.y) < r && Mathf.Abs(toCentre.z) < r) dir = transform.right;
             }
             if (dir.sqrMagnitude < 1e-8f) dir = transform.forward;
             var dirN = dir.normalized;
@@ -1415,7 +1466,7 @@ namespace GoF2Remake.World
                 if (target.untargetable || target.cloaked) attacking = false;   // a cloaked ship: chased, never fired at
                 else
                 {
-                    var d = targetPos - transform.position;
+                    var d = aimPos - transform.position;
                     float fr = NpcTables.FireRange * M;
                     if (Mathf.Abs(local.x) < NpcTables.FireCone && Mathf.Abs(local.y) < NpcTables.FireCone
                         && Mathf.Abs(d.x) < fr && Mathf.Abs(d.y) < fr && Mathf.Abs(d.z) < fr)
@@ -1694,10 +1745,12 @@ namespace GoF2Remake.World
         {
             var all = Obstacle.All;
             var pos = transform.position;
+            int frame = Time.frameCount;
             for (int i = 0; i < all.Count; i++)
             {
                 var o = all[i];
-                if (o == null || o.landmark != landmarks || !o.Active) continue;
+                // Obstacle.All holds only enabled obstacles; MayTouch is a distance test against a sphere measured once a frame.
+                if ((object)o == null || o.landmark != landmarks || !o.MayTouch(pos, frame)) continue;
                 if (!o.Touches(pos, out int index)) continue;
                 var p = o.ProjectionVector(pos, index);
                 if (p == Vector3.zero) continue;
@@ -1720,6 +1773,23 @@ namespace GoF2Remake.World
         // ---- combat ----------------------------------------------------------------------------------------
 
         void OnGunHit(int bullet, Target hit, Vector3 point) => GunHit(gun, rig, bullet, hit, point);
+
+        /// <summary>A gun's hit and, for a gun with an echo (GunEcho), its blasts: the echo's area hurts what it reaches.
+        /// Guns without an echo keep their plain hits, as before.</summary>
+        void WireGun(Gun g)
+        {
+            g.Hit += OnGunHit;
+            if (g.echo != null) g.AreaHit += HitByBlast;
+        }
+
+        /// <summary>An NPC gun's area blast on one target (Gun.AreaDamage, the echo): the hull damage and EMP, no stray-fire
+        /// rules (the blast is what the gun is for). The player takes no area damage (Gun.AreaDamage skips it).</summary>
+        public void HitByBlast(Target t, int dmg, int emp, Vector3 center)
+        {
+            if (t == null) return;
+            if (dmg > 0) t.Damage(dmg, true, (t.transform.position - center).normalized);
+            if (emp > 0 && !t.isPlayer && t.hitpoints != null) t.hitpoints.DamageEmp(emp);
+        }
 
         static bool Contains(IReadOnlyList<Target> list, Target t)
         {
@@ -2010,7 +2080,12 @@ namespace GoF2Remake.World
         }
 
         /// <summary>Remake (CapitalShips): the cargo it drops when it dies (a capital ship's crate).</summary>
-        public void SetLoot(List<ItemStack> items) => loot = items ?? new List<ItemStack>();
+        public void SetLoot(List<ItemStack> items) { loot = items ?? new List<ItemStack>(); multiKindLoot = true; }   // a capital ship's
+
+        /// <summary>Remake: loot of several kinds given on purpose (a pirate outpost's tier loot, a capital ship's crate) drops a
+        /// crate per kind. An ordinary fighter's roll can hold two stacks too (NpcTables.RollLoot): it drops one crate, as the
+        /// original (#Discord 2026-10-20: ships killed by NPCs, wingmen or turrets dropped two crates).</summary>
+        bool multiKindLoot;
 
         bool crateDropped;
 
@@ -2033,7 +2108,7 @@ namespace GoF2Remake.World
             // Remake: loot of several kinds (a pirate outpost's by its tier, a capital ship's) drops a crate per kind (one
             // crate still holds all of one thing), thrown off in different directions; the original's ships drop one stack.
             var stacks = loot.FindAll(s => s != null && s.amount > 0);
-            bool split = stacks.Count > 1 && Spec.missionCrate < 0;
+            bool split = stacks.Count > 1 && Spec.missionCrate < 0 && multiKindLoot;
             var dirs = split ? SpreadDirections(stacks.Count) : null;
             for (int i = 0; i < (split ? stacks.Count : 1); i++)
             {

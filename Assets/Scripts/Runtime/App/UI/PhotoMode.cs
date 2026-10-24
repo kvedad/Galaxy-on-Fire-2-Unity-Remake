@@ -73,7 +73,7 @@ namespace GoF2Remake.UI
             message = OrbitViewUi.Message();
             overlay.Add(message);
             hints = OrbitViewUi.Hints();
-            overlay.Add(hints);   // top right
+            overlay.Add(hints);   // top right, the controls for the input in use (docs/UI-DESIGN.md "Button prompts")
             var footer = new VisualElement { pickingMode = PickingMode.Ignore };
             footer.AddToClassList("orbit-view-footer");
             footer.AddToClassList(SafeArea.EdgeClass);

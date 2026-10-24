@@ -24,8 +24,9 @@ namespace GoF2Remake
     public static class Bootstrap
     {
         // The project's own values, the "default" of the render scale / MSAA options and the base of the LOD bias.
+        static AnisotropicFiltering defaultAniso = AnisotropicFiltering.Enable;
         static float defaultRenderScale = 1f, defaultLodBias = 1f, defaultDeadzone = Settings.DefaultDeadzone;
-        static int defaultMsaa = 1;
+        static int defaultMsaa = 1, defaultMipLimit;
 #if !ENABLE_UPSCALER_FRAMEWORK
         static UpscalingFilterSelection defaultUpscaling = UpscalingFilterSelection.Auto;
 #endif
@@ -57,6 +58,8 @@ namespace GoF2Remake
 #endif
             }
             defaultLodBias = QualitySettings.lodBias;
+            defaultAniso = QualitySettings.anisotropicFiltering;
+            defaultMipLimit = QualitySettings.globalTextureMipmapLimit;
             defaultDeadzone = InputSystem.settings.defaultDeadzoneMin;
 
             ApplyAll();
@@ -65,6 +68,7 @@ namespace GoF2Remake
             UwpDisplay.Install();                 // UWP: the display's real pixel size (a 4K TV, an Xbox), not its view pixels
 #endif
             Visuals.ClassicBloomPass.Install();   // the "Original" bloom option
+            Visuals.PreTransformGuard.Install();  // Android Vulkan: the scene never drawn straight to the pre-rotated back buffer
             HitchLogger.Install();                // development builds: frame hitches to hitches.log
             UI.ScreenshotKey.Install();           // F12: a screenshot to the pictures library
             UI.DiscordPresence.Install();         // desktop: Discord Rich Presence
@@ -99,6 +103,9 @@ namespace GoF2Remake
                 RenderPipelineManager.endCameraRendering -= UpscalerFramework.FlushContexts;
                 QualitySettings.vSyncCount = editorVSync;
                 QualitySettings.lodBias = defaultLodBias;
+                QualitySettings.anisotropicFiltering = defaultAniso;
+                Texture.SetGlobalAnisotropicFilteringLimits(-1, -1);
+                QualitySettings.globalTextureMipmapLimit = defaultMipLimit;
                 if (urp != null)
                 {
                     urp.renderScale = defaultRenderScale;
@@ -134,15 +141,42 @@ namespace GoF2Remake
             if (!Application.isPlaying) return;
             ApplyFrameRate();
             ApplyVolume();
-            if (urp != null) urp.renderScale = Settings.RenderScale > 0f ? Settings.RenderScale : defaultRenderScale;
+            if (urp != null) urp.renderScale = AppliedRenderScale(PickedRenderScale, Android, IsTemporal(ActiveUpscaler));
             ApplyUpscaling();
-            QualitySettings.lodBias = defaultLodBias * (Settings.Quality >= 2 ? 1f : Settings.Quality == 1 ? 0.6f : 0.35f);
+            QualitySettings.lodBias = defaultLodBias * Settings.DetailDistanceFactor;
+            ApplyTextureFiltering();
+            // Texture quality: the mipmap levels skipped (a change reloads the textures: only when it changes).
+            if (QualitySettings.globalTextureMipmapLimit != Settings.TextureQuality) QualitySettings.globalTextureMipmapLimit = Settings.TextureQuality;
             if (!Mathf.Approximately(InputSystem.settings.defaultDeadzoneMin, Settings.StickDeadzone))
                 InputSystem.settings.defaultDeadzoneMin = Settings.StickDeadzone;
             ApplyFog();
             ApplyPostProcessing();
             ApplyDisplay();
         }
+
+        // Android at 100 % render scale (#45, reported again with 2026.10.23 with PreTransformGuard in place): with MSAA off
+        // part of the screen stops updating; with MSAA on, or below 100 %, it doesn't (the user's tests on a phone). The
+        // cause is still unknown: URP renders through its intermediate texture with post-processing on anyway
+        // (UniversalRenderer.RequiresIntermediateColorTexture), so the guard changed nothing. So 100 % gets MSAA 2x behind
+        // the option's back, which keeps showing Off; under a temporal upscaler, which needs MSAA off, it is drawn at 94 %.
+
+        static bool Android => Application.platform == RuntimePlatform.Android;
+        static float PickedRenderScale => Settings.RenderScale > 0f ? Settings.RenderScale : defaultRenderScale;
+
+        /// <summary>URP draws a scale within 5 % of 1 as exactly 1 (UniversalRenderPipeline's kRenderScaleThreshold 0.05).</summary>
+        static bool AtFullScale(float scale) => Mathf.Abs(scale - 1f) < 0.05f;
+
+        /// <summary>The render scale URP gets for the one picked: Android's 100 % under a temporal upscaler is
+        /// <see cref="AndroidFullScale"/> (5 % or more off 1, and 0.95f sits on that edge in float).</summary>
+        public static float AppliedRenderScale(float picked, bool android, bool temporal) =>
+            android && temporal && AtFullScale(picked) ? AndroidFullScale : picked;
+
+        public const float AndroidFullScale = 0.94f;
+
+        /// <summary>The MSAA samples URP gets for the ones picked (after the temporal upscalers' 1): Android's 100 % with MSAA
+        /// off gets 2x.</summary>
+        public static int AppliedMsaa(int picked, float pickedScale, bool android, bool temporal) =>
+            android && !temporal && picked <= 1 && AtFullScale(pickedScale) ? 2 : picked;
 
         // ---- upscaler ----------------------------------------------------------------------------------------
 
@@ -156,14 +190,16 @@ namespace GoF2Remake
             UpscalerFramework.Apply(UpscalerId(upscaler), Settings.UpscalerQuality);
 #else
             // FSR 1 only below 100 % (#45: on Android FSR at 100 % or more left part of the screen frozen; at those scales
-            // there is nothing to upscale). The likely cause, Vulkan pre-transform, is off since 2026-10-14 (CLAUDE.md, "UI and
-            // platforms"); this guard stays until FSR at 100 % is checked on a phone.
+            // there is nothing to upscale). The cause was thought to be the scene drawn straight to the pre-rotated back buffer, which
+            // PreTransformGuard was meant to prevent (it doesn't: see AppliedMsaa); this guard stays until FSR at 100 % is
+            // checked on a phone.
             urp.upscalingFilter = upscaler == Settings.UpscalerFsr && urp.renderScale < 0.999f ? UpscalingFilterSelection.FSR
                 : upscaler == Settings.UpscalerStp ? UpscalingFilterSelection.STP : UpscalingFilterSelection.Auto;
 #endif
             // STP, DLSS and FSR 2+ are temporal: URP's temporal anti-aliasing path, which needs MSAA off
             // (UniversalCameraData.IsTemporalAAEnabled). Only set when it changes (a change can rebuild render targets).
-            int msaa = IsTemporal(upscaler) ? 1 : Settings.Msaa > 0 ? Settings.Msaa : defaultMsaa;
+            bool temporal = IsTemporal(upscaler);
+            int msaa = AppliedMsaa(temporal ? 1 : Settings.Msaa > 0 ? Settings.Msaa : defaultMsaa, PickedRenderScale, Android, temporal);
             if (urp.msaaSampleCount != msaa) urp.msaaSampleCount = msaa;
         }
 
@@ -348,7 +384,16 @@ namespace GoF2Remake
             ApplyFog();
         }
 
-        static void ApplyFog() => RenderSettings.fog = sceneFog && Settings.QualityEffects;
+        /// <summary>Settings.TextureFiltering: bilinear, the textures' own anisotropic levels, every texture at least 9x
+        /// (Unity's forced minimum), or 16x.</summary>
+        static void ApplyTextureFiltering()
+        {
+            int f = Settings.TextureFiltering;
+            QualitySettings.anisotropicFiltering = f == 0 ? AnisotropicFiltering.Disable : f == 1 ? AnisotropicFiltering.Enable : AnisotropicFiltering.ForceEnable;
+            Texture.SetGlobalAnisotropicFilteringLimits(f == 3 ? 16 : -1, -1);   // -1: Unity's own limits
+        }
+
+        static void ApplyFog() => RenderSettings.fog = sceneFog && Settings.Fog;
 
         // ---- post-processing ---------------------------------------------------------------------------------
 

@@ -11,7 +11,7 @@
 }
 
 .squad-panel {
-    margin-bottom: 10px;
+    margin-bottom: var(--space-s);
     background-color: rgba(0, 0, 0, 0.45);
     border-width: 1px;
     border-color: rgba(216, 236, 247, 0.2);
@@ -20,8 +20,8 @@
 
 .squad-header {
     margin: 0;
-    padding: 6px 10px;
-    font-size: 14px;
+    padding: 8px 8px;
+    font-size: var(--text-caption);
     letter-spacing: 1px;
     -unity-text-align: middle-left;
     color: rgb(143, 216, 255);
@@ -31,22 +31,22 @@
 }
 
 .squad-body {
-    padding: 6px 10px 8px 10px;
+    padding: 8px 8px 8px 8px;
 }
 
 .squad-member {
-    margin-bottom: 8px;
+    margin-bottom: var(--space-s);
 }
 
 .squad-pilot {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 6px;
+    margin-bottom: var(--space-s);
 }
 
 .squad-name {
-    font-size: 16px;
+    font-size: var(--text-caption);
     color: rgb(120, 230, 140);
 }
 
@@ -55,7 +55,7 @@
 }
 
 .squad-where {
-    font-size: 13px;
+    font-size: var(--text-small);
     color: rgba(216, 236, 247, 0.65);
 }
 
@@ -86,27 +86,27 @@
 }
 
 .squad-tag {
-    font-size: 13px;
+    font-size: var(--text-caption);
     color: rgba(216, 236, 247, 0.6);
 }
 
 .squad-button {
     margin: 0;
     padding: 4px 12px;
-    font-size: 13px;
+    font-size: var(--text-caption);
     letter-spacing: 1px;
-    color: rgb(255, 255, 255);
-    background-color: rgba(0, 0, 0, 0.6);
-    border-width: 1px;
-    border-color: rgba(216, 236, 247, 0.35);
-    border-radius: 2px;
+    color: var(--gof-text);
+    background-color: var(--button-fill);
+    border-width: var(--button-border-compact);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
 }
 
 /* The flight HUD's Multiplayer and Distress call buttons: the size of the station's Menu button and the Chat button. */
 .mp-hud-button {
     min-height: 50px;
-    padding: 12px 22px;
-    font-size: 20px;
+    padding: 12px 24px;
+    font-size: var(--text-body);
     letter-spacing: 3px;
     border-width: 2px;
     border-radius: 4px;
@@ -120,50 +120,54 @@
 
 .squad-button--leave {
     align-self: flex-start;
-    margin-top: 4px;
+    margin-top: var(--space-xs);
     color: rgb(255, 140, 120);
     border-color: rgba(255, 140, 120, 0.5);
 }
 
+/* The invitation / trade request: the rework's panel shape (docs/UI-DESIGN.md "Shapes"), title and accent above the
+   message, the answers as the shared button kinds. */
 .squad-invite {
     position: absolute;
     top: 12%;
     left: 50%;
-    width: 440px;
+    width: 46%;
+    min-width: 480px;
+    max-width: 700px;
     translate: -50% 0;
-    padding: 14px 18px;
-    background-color: rgba(0, 0, 0, 0.75);
+    padding: 32px 36px;
+    background-color: var(--gof-panel);
     border-width: 1px;
-    border-color: rgba(143, 216, 255, 0.5);
+    border-color: var(--gof-line);
+    border-left-width: 3px;
+    border-left-color: var(--gof-cyan);
     border-radius: 2px;
 }
 
 .squad-invite-text {
-    font-size: 17px;
-    color: rgb(255, 255, 255);
+    font-size: var(--text-body);
+    color: var(--gof-text);
     white-space: normal;
-    -unity-text-align: middle-center;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-xl);
 }
 
 .squad-invite-buttons {
     flex-direction: row;
-    justify-content: center;
+    justify-content: flex-end;
 }
 
-.squad-invite-buttons .squad-button {
-    margin: 0 8px;
-    min-width: 120px;
+.squad-invite-buttons .gof-button {
+    margin-left: var(--space-m);
 }
 
 /* the station's join code plate (an online session), under the system information */
 .squad-code {
-    margin-top: 10px;
+    margin-top: var(--space-s);
 }
 
 .squad-code-title {
     margin-bottom: 2px;
-    font-size: 13px;
+    font-size: var(--text-caption);
     letter-spacing: 3px;
 }
 
@@ -174,29 +178,29 @@
 }
 
 .squad-code-value {
-    margin: 0 14px 0 0;
+    margin: 0 16px 0 0;
     letter-spacing: 5px;
 }
 
 /* Large (UiScale.Large: a small high-density screen such as a 5.5" handheld): the squad window, the invitation and the
    multiplayer window (.mpw--large) about 1.5x, the buttons finger-sized (about 6 mm on the Retroid Pocket G2). */
 .squad--large.squad {
-    width: 30%;
-    min-width: 420px;
+    width: 26%;
+    min-width: 360px;
 }
 
 .squad--large .squad-header {
-    padding: 10px 14px;
-    font-size: 21px;
+    padding: 8px 16px;
+    font-size: var(--text-label);
 }
 
 .squad--large .squad-name {
-    font-size: 23px;
+    font-size: var(--text-subhead);
 }
 
 .squad--large .squad-where,
 .squad--large .squad-tag {
-    font-size: 19px;
+    font-size: var(--text-body);
 }
 
 .squad--large .squad-bar {
@@ -204,12 +208,12 @@
 }
 
 .squad--large.squad-invite {
-    width: 52%;
-    padding: 20px 26px;
+    width: 56%;
+    padding: 36px 44px;
 }
 
 .squad--large .squad-invite-text {
-    font-size: 25px;
+    font-size: var(--text-subhead);
 }
 
 .squad--large .squad-button,
@@ -217,23 +221,24 @@
 .squad-button--big {
     min-height: 64px;
     min-width: 64px;
-    padding: 10px 22px;
-    font-size: 20px;
+    padding: 8px 24px;
+    font-size: var(--text-body);
     -unity-text-align: middle-center;
 }
 
-.squad--large .squad-invite-buttons .squad-button {
-    min-width: 180px;
+.squad--large .squad-invite-buttons .gof-button {
+    min-width: 200px;
 }
 
 .mpw--large .unity-base-text-field__input {
     min-height: 60px;
     padding: 8px 12px;
-    font-size: 24px;
+    font-size: var(--text-subhead);
 }
 
 /* The focused control with a controller: an amber frame (the menus' look), so the D-pad's place is clear. */
 .input-gamepad .squad-button:focus {
-    border-color: rgb(240, 179, 90);
-    background-color: rgba(240, 179, 90, 0.25);
+    border-color: var(--button-focus-line);
+    background-color: var(--button-focus-fill);
+    color: #FFFFFF;
 }

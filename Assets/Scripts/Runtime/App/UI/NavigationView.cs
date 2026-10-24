@@ -315,6 +315,7 @@ namespace GoF2Remake.UI
             {
                 lockPlate.EnableInClassList("lock-plate--shown", true);
                 lockOre.text = locked.name;
+                lockOre.EnableInClassList("lock-ore--wanted", false);   // the shared plate's criminal red (CombatView) stayed on (Discord 2026-10-17)
                 // The remake's lockable waypoint shows its own marker, not the system's race icon (#28).
                 var icon = locked.kind == Navigation.Kind.Planet ? null
                          : locked.kind == Navigation.Kind.Waypoint ? Tex(locked.freelance ? "map_freelance" : "map_story")
@@ -368,6 +369,8 @@ namespace GoF2Remake.UI
                 Image(fastForward, fastForwardPressed && (nav.FastForward || nav.Cruise) ? fastForwardOn : fastForwardOff);
             }
             Image(autopilotButton, active || nav != null && nav.MenuOpen ? autopilotOn : autopilotOff);
+            // Hud::draw ~0x1926f6: the Supernova Challenge (0xb7) leaves the autopilot button out (its menu isn't offered).
+            autopilotButton.style.visibility = SupernovaChallenge.Active && !active ? Visibility.Hidden : Visibility.Visible;
         }
 
         // By the translate, not left / top: the markers move every frame, and left / top ran the panel's layout each time.

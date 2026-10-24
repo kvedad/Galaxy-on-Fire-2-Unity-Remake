@@ -26,6 +26,7 @@
 using GoF2Remake.Data;
 using GoF2Remake.UI;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
@@ -47,7 +48,8 @@ namespace GoF2Remake.Events
         float titleStart, titleEnd = -1f, timerEnd = -1f;
         string titleText = "", subtitleText = "", timerText = "";
         bool pending;
-        static readonly Queue<(List<DialogueLine> pages, System.Action closed)> dialogs = new Queue<(List<DialogueLine>, System.Action)>();
+        // 'lasting': kept when the events stop (a bar mission's end message, queued as its run ends).
+        static readonly Queue<(List<DialogueLine> pages, System.Action closed, bool lasting)> dialogs = new Queue<(List<DialogueLine>, System.Action, bool)>();
         VisualElement rewardBox, rewardItems;
         Label rewardTitle, rewardCredits;
         float rewardStart = -1f;
@@ -144,10 +146,12 @@ namespace GoF2Remake.Events
             return Time.unscaledTime - voiceWait > 3f;
         }
 
-        public static void QueueDialog(List<DialogueLine> pages, System.Action closed = null)
+        /// <summary>A conversation in the scene's dialogue window, after the ones queued before. 'lasting': it stays queued when
+        /// the events stop (else they take their conversations with them).</summary>
+        public static void QueueDialog(List<DialogueLine> pages, System.Action closed = null, bool lasting = false)
         {
             if (pages == null || pages.Count == 0 || Get() == null) { closed?.Invoke(); return; }
-            if (dialogs.Count < 10) dialogs.Enqueue((pages, closed));
+            if (dialogs.Count < 10) dialogs.Enqueue((pages, closed, lasting));
         }
 
         /// <summary>The reward box (Layout::showMissionRewardMessage): 'title' (null = 216 "Mission accomplished!"), "+ credits"
@@ -179,9 +183,6 @@ namespace GoF2Remake.Events
             instance = go.AddComponent<EventScreen>();
             instance.runtimePanel = Instantiate(assets.panelSettings);
             instance.runtimePanel.sortingOrder = assets.panelSettings.sortingOrder + 90;   // over the HUDs and menus, under the FPS counter
-            instance.runtimePanel.referenceResolution = new Vector2Int(1920, 1080);
-            instance.runtimePanel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-            instance.runtimePanel.match = 1f;
             instance.emptyTree = ScriptableObject.CreateInstance<VisualTreeAsset>();
             var pr = go.AddComponent<PanelRenderer>();
             pr.panelSettings = instance.runtimePanel;
@@ -218,7 +219,7 @@ namespace GoF2Remake.Events
         {
             var s = Get();
             if (s == null) return;
-            s.timerEnd = seconds < 0f ? -1f : Time.unscaledTime + seconds;
+            s.timerEnd = seconds < 0f ? -1f : EventHost.Now + seconds;   // the events' clock: stops while single player is paused
             s.timerText = label ?? "";
             s.pending = true;
         }
@@ -246,7 +247,7 @@ namespace GoF2Remake.Events
             s.pendingQuestion = f;
             s.questionId = id;
             float.TryParse(f[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float seconds);
-            s.questionEnd = seconds > 0f ? Time.unscaledTime + seconds : float.PositiveInfinity;
+            s.questionEnd = seconds > 0f ? EventHost.Now + seconds : float.PositiveInfinity;   // the server's deadline's clock
             s.questionGone = -1f;
             PlaySound((int)EventSound.Message);
         }
@@ -287,7 +288,15 @@ namespace GoF2Remake.Events
             s.Source(ref s.sound).PlayOneShot(GoF2Remake.Modding.ModSounds.Get(clip), Settings.SfxVolume);
         }
 
-        /// <summary>An event track (EventMusic) looped instead of the scene's music; -1 stops it.</summary>
+        /// <summary>A mod's sound by name (ModSounds) at the FX volume.</summary>
+        public static void PlayModSound(string name)
+        {
+            var s = Get();
+            var clip = Modding.ModSounds.Named(name);
+            if (s == null || clip == null) return;
+            s.Source(ref s.sound).PlayOneShot(clip, Settings.SfxVolume);
+        }
+
         /// <summary>A mod's track by name (ModMusic) instead of the scene's music, looped.</summary>
         public static void PlayModMusic(string name)
         {
@@ -346,7 +355,7 @@ namespace GoF2Remake.Events
         {
             var l = new Label { pickingMode = PickingMode.Ignore };
             var s = l.style;
-            s.fontSize = size;
+            s.fontSize = UiLayout.Type(size);
             s.color = colour;
             s.letterSpacing = spacing;
             s.unityTextAlign = TextAnchor.MiddleCenter;
@@ -359,6 +368,8 @@ namespace GoF2Remake.Events
 
         void OnUIReload(PanelRenderer renderer, VisualElement root, int version)
         {
+            UiLayout.Keep(runtimePanel, root);   // docs/UI-DESIGN.md "Scaling"
+            UiSounds.Attach(root);   // the questions' and the MOTD's buttons (docs/UI-DESIGN.md "Sound")
             root.pickingMode = PickingMode.Ignore;
             root.style.position = Position.Absolute;
             root.style.left = root.style.top = root.style.right = root.style.bottom = 0;
@@ -580,7 +591,7 @@ namespace GoF2Remake.Events
             b.marginTop = 14;
             b.minWidth = 180;
             b.minHeight = 56;
-            b.fontSize = 22;
+            b.fontSize = UiLayout.Type(22);
             b.letterSpacing = 2;
             b.unityTextAlign = TextAnchor.MiddleCenter;   // centred in the button (the theme's buttons align left)
             b.paddingLeft = b.paddingRight = 24;
@@ -749,7 +760,7 @@ namespace GoF2Remake.Events
                     bs.marginLeft = bs.marginRight = 0;
                     bs.paddingTop = bs.paddingBottom = 10;
                     bs.paddingLeft = bs.paddingRight = 18;
-                    bs.fontSize = 21;
+                    bs.fontSize = UiLayout.Type(21);
                     bs.letterSpacing = 1;
                     bs.unityTextAlign = TextAnchor.MiddleLeft;
                     bs.color = TextDim;
@@ -761,7 +772,7 @@ namespace GoF2Remake.Events
                     glyph.style.position = Position.Absolute;
                     glyph.style.right = 14;
                     glyph.style.top = 9;
-                    glyph.style.fontSize = 16;
+                    glyph.style.fontSize = UiLayout.Type(16);
                     glyph.style.color = TextDim;
                     button.Add(glyph);
                     button.RegisterCallback<PointerEnterEvent>(_ => Highlight(button, true));
@@ -776,9 +787,10 @@ namespace GoF2Remake.Events
             bool lingering = !open && questionGone >= 0f && now < questionGone;
             questionBox.style.display = open || lingering ? DisplayStyle.Flex : DisplayStyle.None;
             if (!open) { if (!lingering) questionGone = -1f; return; }
-            if (now >= questionEnd) { questionId = 0; return; }   // the server closes it too
+            float eventNow = EventHost.Now;
+            if (eventNow >= questionEnd) { questionId = 0; return; }   // the server closes it too
             questionTimer.text = float.IsPositiveInfinity(questionEnd) ? Localization.Extra("mpAskSkip", "Esc: skip")
-                : $"{Mathf.CeilToInt(questionEnd - now)} s  ·  " + Localization.Extra("mpAskSkip", "Esc: skip");
+                : $"{Mathf.CeilToInt(questionEnd - eventNow)} s  ·  " + Localization.Extra("mpAskSkip", "Esc: skip");
             var kb = Keyboard.current;
             var pad = Gamepad.current;
             for (int k = 1; k <= answerButtons.Count; k++)
@@ -872,12 +884,24 @@ namespace GoF2Remake.Events
         void Update()
         {
             if (title == null) return;
-            if (!EventHost.ScreensActive && (titleEnd >= 0f || timerEnd >= 0f || rewardStart >= 0f)) { titleEnd = timerEnd = rewardStart = -1f; pending = true; }
-            if (!EventHost.ScreensActive) dialogs.Clear();
+            // The events stopping takes their screens along: in a session (it ended) all of them, in single player only the
+            // countdown, since a mission's Complete / Failed shows its title and reward box in the frame its run ends.
+            if (!EventHost.ScreensActive && (timerEnd >= 0f || (!EventHost.Local && (titleEnd >= 0f || rewardStart >= 0f))))
+            {
+                timerEnd = -1f;
+                if (!EventHost.Local) titleEnd = rewardStart = -1f;
+                pending = true;
+            }
+            if (!EventHost.ScreensActive && dialogs.Count > 0)
+            {
+                var keep = dialogs.Where(d => d.lasting).ToList();
+                dialogs.Clear();
+                foreach (var d in keep) dialogs.Enqueue(d);
+            }
             var view = UiHooks.LatestDialogue;
             if (dialogs.Count > 0 && view != null && view.Usable && !view.IsOpen && !World.SpaceHooks.StarMapOpen && VoicesReady(dialogs.Peek().pages))
             {
-                var (pages, closed) = dialogs.Dequeue();
+                var (pages, closed, _) = dialogs.Dequeue();
                 voiceWait = -1f;
                 view.Show(pages, _ => closed?.Invoke());
             }
@@ -895,13 +919,15 @@ namespace GoF2Remake.Events
             titleBox.style.display = titleOn ? DisplayStyle.Flex : DisplayStyle.None;
             if (titleOn) titleBox.style.opacity = Mathf.Min(Mathf.Clamp01((now - titleStart) / FadeIn), Mathf.Clamp01((titleEnd + FadeOut - now) / FadeOut));
             else if (titleEnd >= 0f) titleEnd = -1f;
-            // The countdown: m:ss, amber for the last 10 s, gone 2 s after 0.
-            bool timerOn = timerEnd >= 0f && now < timerEnd + TimerLinger;
+            // The countdown: m:ss, amber for the last 10 s, gone 2 s after 0; on the events' clock like the event's own
+            // waits, so it holds under the pause menu with them (it ran on in real time and fell out of step).
+            float eventNow = EventHost.Now;
+            bool timerOn = timerEnd >= 0f && eventNow < timerEnd + TimerLinger;
             timerBox.style.display = timerOn ? DisplayStyle.Flex : DisplayStyle.None;
             if (timerOn)
             {
                 if (pending) { timerLabel.text = timerText.ToUpperInvariant(); timerLabel.style.display = timerText.Length > 0 ? DisplayStyle.Flex : DisplayStyle.None; }
-                int left = Mathf.CeilToInt(Mathf.Max(0f, timerEnd - now));
+                int left = Mathf.CeilToInt(Mathf.Max(0f, timerEnd - eventNow));
                 timerValue.text = $"{left / 60}:{left % 60:00}";
                 timerValue.style.color = left <= 10 ? new Color(1f, 0.7f, 0.25f) : Color.white;
             }

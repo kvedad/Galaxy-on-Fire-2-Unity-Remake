@@ -14,6 +14,7 @@ using System;
 using GoF2Remake.Data;
 using GoF2Remake.Visuals;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UIElements;
 using Object = UnityEngine.Object;
 
@@ -140,9 +141,13 @@ namespace GoF2Remake.UI
             stage.transform.position = stagePosition;
             var go = Object.Instantiate(prefab, stage.transform, false);
             go.GetComponent<AssembledObject>()?.SetPlayerVariant(true);
+            GoF2Remake.Visuals.AutoLods.FullDetail(go);
             foreach (var lg in go.GetComponentsInChildren<LODGroup>(true)) lg.ForceLOD(0);
             foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = PreviewLayer;
             UsePreviewAdditive(go);
+            NoReflections(go);
+            RenderPipelineManager.beginCameraRendering += BeginPreviewRender;
+            RenderPipelineManager.endCameraRendering += EndPreviewRender;
             model = go.transform;
             if (ship == GoF2Remake.World.StationLevel.OffCentreShip) CentreOnAxis(go);
             // The camera: (1362, 1690, -5257) game units at 1920 x 1080 -> Unity (x, y, -z) * 0.05, looking at the ship.
@@ -180,6 +185,17 @@ namespace GoF2Remake.UI
             light.type = LightType.Directional;
             light.cullingMask = 1 << PreviewLayer;
             light.intensity = 1f;
+            // On only while its own camera draws: the PC renderer is Forward+, which ignores a light's culling mask, so this
+            // light (pointing slightly up) lit the whole hangar while a ship row was selected and the ceiling went dark on an
+            // item row (Discord report "[10.18] Hangar: Visual glitch").
+            light.enabled = false;
+            previewLight = light;
+            if (!lightHooked)
+            {
+                UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += OnBeginCamera;
+                UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnEndCamera;
+                lightHooked = true;
+            }
             image.style.backgroundImage = new StyleBackground(Background.FromRenderTexture(rt));
             yawPx = 260f;   // ListItemWindow: starts at 260 px
             flingPx = 0f;
@@ -252,6 +268,62 @@ namespace GoF2Remake.UI
             Object.Destroy(old);
         }
 
+        /// <summary>Modified: the thumbnail shows the bare hull, without the place's reflection cubemap (SkyReflection: the
+        /// system's or the hangar's) or the rim light. GoF2/Hull's own terms (and EmissiveCube's) read globals, overridden
+        /// here per renderer; URP's environment reflection is the custom reflection texture, swapped for a black cubemap
+        /// while the preview camera renders (BeginPreviewRender / EndPreviewRender).</summary>
+        void NoReflections(GameObject go)
+        {
+            var block = new MaterialPropertyBlock();
+            foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!(r is MeshRenderer || r is SkinnedMeshRenderer)) continue;
+                r.GetPropertyBlock(block);
+                block.SetFloat(HullReflectionId, 0f);
+                block.SetColor(HullRimId, Color.black);
+                block.SetTexture(ReflectionCubeId, BlackCube);
+                r.SetPropertyBlock(block);
+                r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            }
+        }
+
+        Texture savedReflection;
+        float savedReflectionIntensity;
+        bool swapped;
+
+        void BeginPreviewRender(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera != cam || cam == null || swapped) return;
+            savedReflection = RenderSettings.customReflectionTexture;
+            savedReflectionIntensity = RenderSettings.reflectionIntensity;
+            if (RenderSettings.defaultReflectionMode == DefaultReflectionMode.Custom) RenderSettings.customReflectionTexture = BlackCube;
+            RenderSettings.reflectionIntensity = 0f;
+            swapped = true;
+        }
+
+        void EndPreviewRender(ScriptableRenderContext context, Camera camera)
+        {
+            if (!swapped || (camera != cam && cam != null)) return;
+            if (RenderSettings.defaultReflectionMode == DefaultReflectionMode.Custom) RenderSettings.customReflectionTexture = savedReflection;
+            RenderSettings.reflectionIntensity = savedReflectionIntensity;
+            swapped = false;
+        }
+
+        static readonly int HullReflectionId = Shader.PropertyToID("_GoF2HullReflection"), HullRimId = Shader.PropertyToID("_GoF2HullRimColor"),
+            ReflectionCubeId = Shader.PropertyToID("_GoF2ReflectionCube");
+        static Cubemap blackCube;
+        static Cubemap BlackCube
+        {
+            get
+            {
+                if (blackCube != null) return blackCube;
+                blackCube = new Cubemap(1, TextureFormat.RGBA32, false) { name = "ShipPreviewNoReflection", hideFlags = HideFlags.DontSave };
+                for (int f = 0; f < 6; f++) blackCube.SetPixel((CubemapFace)f, 0, 0, Color.black);
+                blackCube.Apply(false, true);
+                return blackCube;
+            }
+        }
+
         /// <summary>Remake: the ship's additive lights (the Additive Shader Graph) drawn with GoF2/PreviewAdditive, which
         /// leaves the texture's alpha to their brightness: the graph's alpha blend left each light's whole sprite in it, a
         /// black star around the light once the UI laid the texture over the floor.</summary>
@@ -320,11 +392,27 @@ namespace GoF2Remake.UI
         }
 
         /// <summary>Takes the ship, its camera and texture away and hides the box.</summary>
+        Light previewLight;
+        bool lightHooked;
+
+        void OnBeginCamera(UnityEngine.Rendering.ScriptableRenderContext _, Camera c) { if (previewLight != null) previewLight.enabled = c == cam; }
+        void OnEndCamera(UnityEngine.Rendering.ScriptableRenderContext _, Camera c) { if (previewLight != null && c == cam) previewLight.enabled = false; }
+
         public void Hide()
         {
+            if (lightHooked)
+            {
+                UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+                UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnEndCamera;
+                lightHooked = false;
+            }
+            previewLight = null;
             Element.style.display = DisplayStyle.None;
             image.style.backgroundImage = StyleKeyword.None;
             EndDrag();
+            RenderPipelineManager.beginCameraRendering -= BeginPreviewRender;
+            RenderPipelineManager.endCameraRendering -= EndPreviewRender;
+            EndPreviewRender(default, null);   // never left swapped
             if (stage != null) Object.Destroy(stage);
             stage = null;
             model = null;

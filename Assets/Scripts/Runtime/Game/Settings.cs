@@ -64,21 +64,22 @@ namespace GoF2Remake.Data
             set { SetQuiet("resolutionWidth", value.x); Set("resolutionHeight", value.y, force: true); }
         }
 
-        /// <summary>Frame rate limit, applied by Bootstrap. V-Sync (display refresh rate) by default.</summary>
+        /// <summary>Frame rate limit, applied by Bootstrap. V-Sync (display refresh rate) by default; 60 on Android (the user's
+        /// choice, 2026-10-22: a 120 Hz phone rendering at 120 heats up and throttles).</summary>
         public static FrameRate FrameRate
         {
-            get => (FrameRate)Mathf.Clamp(Mathf.RoundToInt(Get("frameRate", (float)FrameRate.VSync)), 0, (int)FrameRate.VSync);
+            get => (FrameRate)Mathf.Clamp(Mathf.RoundToInt(Get("frameRate", (float)(AndroidDefaults ? FrameRate.Fps60 : FrameRate.VSync))), 0, (int)FrameRate.VSync);
             set => Set("frameRate", (float)value);
         }
 
         /// <summary>URP render scale; 0 = the platform's render pipeline asset (1 on PC, 0.8 on mobile).</summary>
-        public static float RenderScale { get => Get("renderScale", 0f); set => Set("renderScale", value <= 0f ? 0f : Mathf.Clamp(value, 0.5f, 2f)); }
+        public static float RenderScale { get => Get("renderScale", Default("renderScale", 0f)); set => Set("renderScale", value <= 0f ? 0f : Mathf.Clamp(value, 0.5f, 2f)); }
 
         /// <summary>Upscaler: 0 off (URP's automatic bilinear / point), 1 AMD FSR 1 (sharpening, also at 100 %), 2 Unity STP
         /// (temporal: anti-aliasing and upscaling, replaces MSAA), 3 NVIDIA DLSS and 4 AMD FSR 2 / 3 / 4 (temporal, the render
         /// resolution by UpscalerQuality; desktop builds with the upscaler framework only, UpscalerFramework), 5 Apple MetalFX
         /// Spatial and 6 MetalFX Temporal (macOS / iOS on Metal, from the render scale; 6 temporal like STP).</summary>
-        public static int Upscaler { get => Mathf.RoundToInt(Get("upscaler", 0f)); set => Set("upscaler", Mathf.Clamp(value, 0, 6)); }
+        public static int Upscaler { get => Mathf.RoundToInt(Get("upscaler", Default("upscaler", 0f))); set => Set("upscaler", Mathf.Clamp(value, 0, 6)); }
         public const int UpscalerOff = 0, UpscalerFsr = 1, UpscalerStp = 2, UpscalerDlss = 3, UpscalerFsrTemporal = 4,
             UpscalerMetalFxSpatial = 5, UpscalerMetalFxTemporal = 6;
 
@@ -87,12 +88,47 @@ namespace GoF2Remake.Data
         public static int UpscalerQuality { get => Mathf.RoundToInt(Get("upscalerQuality", 1f)); set => Set("upscalerQuality", Mathf.Clamp(value, 0, 4)); }
 
         /// <summary>MSAA samples (1 = off, 2, 4, 8); 0 = the platform's render pipeline asset.</summary>
-        public static int Msaa { get => Mathf.RoundToInt(Get("msaa", 0f)); set => Set("msaa", value); }
+        public static int Msaa { get => Mathf.RoundToInt(Get("msaa", Default("msaa", 0f))); set => Set("msaa", value); }
 
-        /// <summary>Original "Quality" option (504; texts 507-512): 0 Low (smoke off, fog off, detail low), 1 Medium (smoke
-        /// off, fog off, detail medium), 2 High (everything on). Default High (Globals::init options+0x28 = 1.0).</summary>
-        public static int Quality { get => Mathf.RoundToInt(Get("quality", 2f)); set => Set("quality", Mathf.Clamp(value, 0, 2)); }
-        public static bool QualityEffects => Quality >= 2;
+        // The original's "Quality" option (504; texts 507-512: Low = smoke off, fog off, detail low; Medium = smoke off, fog
+        // off, detail medium; High = everything on, the default, Globals::init options+0x28 = 1.0) split into its parts
+        // (remake, the user's request 2026-10-23: it doubled the Graphics preset). A player who had set it keeps what it meant
+        // (OldQuality) until they set the new options.
+
+        /// <summary>Remake: the fire and smoke effects (ShipSmoke, ShipBurn, WreckBurn): damaged ships' smoke, the death burn,
+        /// burning wrecks. The original's Quality Low / Medium turned them off.</summary>
+        public static bool FireSmoke { get => GetBool("fireSmoke", OldQuality("fireSmoke", 1f) > 0.5f); set => SetBool("fireSmoke", value); }
+
+        /// <summary>Remake: the fog of the systems that have it (Bootstrap.SetSceneFog). Off in the original's Quality Low / Medium.</summary>
+        public static bool Fog { get => GetBool("fog", OldQuality("fog", 1f) > 0.5f); set => SetBool("fog", value); }
+
+        /// <summary>Remake: how far the levels of detail switch (QualitySettings.lodBias x 0.35 / 0.6 / 1 / 2 for 0 Low,
+        /// 1 Medium, 2 High, 3 Ultra; the original's Quality Low / Medium / High were the first three).</summary>
+        public static int DetailDistance { get => Mathf.Clamp(Mathf.RoundToInt(Get("detailDistance", OldQuality("detailDistance", 2f))), 0, 3); set => Set("detailDistance", Mathf.Clamp(value, 0, 3)); }
+        public static float DetailDistanceFactor => DetailDistance switch { 0 => 0.35f, 1 => 0.6f, 3 => 2f, _ => 1f };
+
+        /// <summary>Remake: texture filtering (QualitySettings.anisotropicFiltering, Bootstrap): 0 bilinear (Disable),
+        /// 1 anisotropic where a texture asks for it (Enable, the phones' quality level), 2 forced on every texture
+        /// (ForceEnable, the desktop's quality level), 3 forced at 16x.</summary>
+        public static int TextureFiltering { get => Mathf.Clamp(Mathf.RoundToInt(Get("textureFiltering", Default("textureFiltering", 2f))), 0, 3); set => Set("textureFiltering", Mathf.Clamp(value, 0, 3)); }
+
+        /// <summary>A part of the original's Quality while the player had set it and not the new option: High 2 = every part
+        /// on and detail High, Medium 1 / Low 0 = effects off and that detail. Else the option's default.</summary>
+        static float OldQuality(string key, float other)
+        {
+            if (defaultReads < 0 && PlayerPrefs.HasKey(Prefix + "quality"))
+            {
+                int q = Mathf.Clamp(Mathf.RoundToInt(PlayerPrefs.GetFloat(Prefix + "quality", 2f)), 0, 2);
+                return key == "detailDistance" ? q : q >= 2 ? 1f : 0f;
+            }
+            return Default(key, other);
+        }
+
+        /// <summary>Remake: Texture quality, the mipmap levels skipped when textures are loaded (QualitySettings.
+        /// globalTextureMipmapLimit, Bootstrap): 0 full, 1 half (a quarter of the memory), 2 quarter. The space skies,
+        /// reflection cubemaps and HUD images keep theirs (AssetImport.KeepsFullMips: ignoreMipmapLimit); textures made at
+        /// run time (the mods') aren't affected. Half in the Low preset.</summary>
+        public static int TextureQuality { get => Mathf.Clamp(Mathf.RoundToInt(Get("textureQuality", Default("textureQuality", 0f))), 0, 2); set => Set("textureQuality", Mathf.Clamp(value, 0, 2)); }
 
         /// <summary>Original "Brightness" option: 0 Dark, 1 Medium, 2 Bright (texts 513-515).</summary>
         public static int Brightness { get => Mathf.RoundToInt(Get("brightness", 1f)); set => Set("brightness", Mathf.Clamp(value, 0, 2)); }
@@ -106,7 +142,7 @@ namespace GoF2Remake.Data
         /// lights with the original's on the sky, the stars and the planets). Old saves: the "bloom" toggle.</summary>
         public static int BloomStyle
         {
-            get => Mathf.RoundToInt(Get("bloomStyle", GetBool("bloom", true) ? BloomRemake : BloomOff));
+            get => Mathf.RoundToInt(Get("bloomStyle", GetBool("bloom", Default("bloomStyle", BloomRemake) != BloomOff) ? BloomRemake : BloomOff));
             set => Set("bloomStyle", value);
         }
         public const int BloomOff = 0, BloomRemake = 1, BloomOriginal = 2, BloomBoth = 3;
@@ -117,18 +153,74 @@ namespace GoF2Remake.Data
         public static bool ClassicBloom => BloomStyle == BloomOriginal || BloomStyle == BloomBoth;
 
         /// <summary>The sun's lens flare in flight (LensFlareView).</summary>
-        public static bool LensFlare { get => GetBool("lensFlare", true); set => SetBool("lensFlare", value); }
+        public static bool LensFlare { get => GetBool("lensFlare", Default("lensFlare", 1f) > 0.5f); set => SetBool("lensFlare", value); }
 
         /// <summary>Remake: the hangar ships' contact shadows (HangarShipShadow): 0 off, 1 only the player's own ship, 2 every
         /// ship (default). Off also drops the station camera's depth texture they read.</summary>
-        public static int HangarShadows { get => Mathf.Clamp(Mathf.RoundToInt(Get("hangarShadows", HangarShadowsAll)), 0, 2); set => Set("hangarShadows", Mathf.Clamp(value, 0, 2)); }
+        public static int HangarShadows { get => Mathf.Clamp(Mathf.RoundToInt(Get("hangarShadows", Default("hangarShadows", HangarShadowsPlayer))), 0, 2); set => Set("hangarShadows", Mathf.Clamp(value, 0, 2)); }
         public const int HangarShadowsOff = 0, HangarShadowsPlayer = 1, HangarShadowsAll = 2;
+        /// <summary>Remake: levels of detail (AutoLods): far objects drawn with fewer triangles, the original's LOD meshes
+        /// and the ones made from the models (the game's prebaked, the mods' at run time). Off: every model at full detail
+        /// (LOD 0, as the original binary's AEGeometry::updateLod). On by default on every platform (the user's choice,
+        /// 2026-10-22; it was phones only).</summary>
+        public static bool Lods { get => GetBool("lods", Default("lods", 1f) > 0.5f); set => SetBool("lods", value); }
         /// <summary>Remake: the hangar view's depth of field on the player's ship (StationLevel); off by default on phones.</summary>
-        public static bool HangarDepthOfField { get => GetBool("hangarDof", false); set => SetBool("hangarDof", value); }   // off by default (2026-10)
+        public static bool HangarDepthOfField { get => GetBool("hangarDof", Default("hangarDof", 0f) > 0.5f); set => SetBool("hangarDof", value); }   // off by default (2026-10)
 
         /// <summary>Remake: NPC ships fly with the player's engine system (the *_engine_glow_add mesh and the exhaust
-        /// particles) instead of the original's *_engine_add mesh; from the next spawn.</summary>
-        public static bool NpcPlayerEngines { get => GetBool("npcPlayerEngines", true); set => SetBool("npcPlayerEngines", value); }
+        /// particles) instead of the original's *_engine_add mesh; from the next spawn. Off on Android (the Low preset): a
+        /// particle system per NPC ship and the additive glow's overdraw.</summary>
+        public static bool NpcPlayerEngines { get => GetBool("npcPlayerEngines", Default("npcPlayerEngines", 1f) > 0.5f); set => SetBool("npcPlayerEngines", value); }
+
+        // ---- graphics presets (remake, the user's request 2026-10-22) -----------------------------------------------
+
+        /// <summary>Options > Graphics "Graphics preset": Low, Medium, High and Ultra set these options at once (ApplyPreset);
+        /// the row shows the preset the options match, else Custom (OptionsCatalog). High is the desktop's defaults, so a fresh
+        /// install there shows High; Low is Android's defaults (AndroidDefaults: every key here a player never set), for
+        /// lower-end phones' frame rate and heat; Ultra (the user's request 2026-10-23) every option at its most. The frame
+        /// rate isn't part of them (Android's default is 60 on its own).</summary>
+        public const int PresetLow = 0, PresetMedium = 1, PresetHigh = 2, PresetUltra = 3, PresetCustom = 4;
+
+        public static readonly string[] PresetKeys =
+        {
+            "renderScale", "upscaler", "msaa", "bloomStyle", "hangarShadows", "hangarDof", "lensFlare", "npcPlayerEngines", "lods",
+            "textureQuality", "fireSmoke", "fog", "detailDistance", "textureFiltering",
+        };
+
+        // One row per preset, in PresetKeys' order. Low / Medium as the original's Quality Low / Medium (fire, smoke and fog
+        // off, detail distance x0.35 / x0.6); render scale with FSR 1 sharpening it back up (only where the device runs FSR,
+        // Bootstrap.ActiveUpscaler); MSAA 1 = off (the flight camera's SMAA stays); bloom off on Low (both blooms are
+        // full-screen passes). Ultra: 150 % render scale (200 % is in the row, but four times the pixels of 100 % with MSAA 8x
+        // is past most GPUs), MSAA 8x, every hangar ship's shadow, depth of field, no made levels of detail, detail distance
+        // x2, 16x filtering.
+        static readonly float[][] Presets =
+        {
+            //      scale  upscaler     msaa bloom        hangar shadows       dof lens npcEng lods textures fire fog detail filter
+            new[] { 0.67f, UpscalerFsr, 1f, BloomOff,    HangarShadowsOff,    0f, 0f, 0f, 1f, 1f, 0f, 0f, 0f, 1f },
+            new[] { 0.8f,  UpscalerFsr, 1f, BloomRemake, HangarShadowsPlayer, 0f, 1f, 0f, 1f, 0f, 0f, 0f, 1f, 1f },
+            new[] { 1f,    UpscalerOff, 1f, BloomRemake, HangarShadowsPlayer, 0f, 1f, 1f, 1f, 0f, 1f, 1f, 2f, 2f },
+            new[] { 1.5f,  UpscalerOff, 8f, BloomRemake, HangarShadowsAll,    1f, 1f, 1f, 0f, 0f, 1f, 1f, 3f, 3f },
+        };
+
+        /// <summary>'key''s value in 'preset' (PresetLow..PresetUltra).</summary>
+        public static float PresetValue(int preset, string key) => Presets[Mathf.Clamp(preset, 0, Presets.Length - 1)][Array.IndexOf(PresetKeys, key)];
+
+        /// <summary>Sets every option of 'preset' (PresetLow..PresetUltra; anything else does nothing), one Changed.</summary>
+        public static void ApplyPreset(int preset)
+        {
+            if (preset < 0 || preset >= Presets.Length) return;
+            for (int i = 0; i < PresetKeys.Length; i++) SetQuiet(PresetKeys[i], Presets[preset][i]);
+            PlayerPrefs.Save();
+            Changed?.Invoke();
+        }
+
+        /// <summary>The Android defaults: the Low preset and 60 fps (the user's choice, 2026-10-22). Tests set the override.</summary>
+        public static bool AndroidDefaults => androidDefaultsOverride ?? Application.platform == RuntimePlatform.Android;
+        static bool? androidDefaultsOverride;
+        public static void OverrideAndroidDefaults(bool? android) { androidDefaultsOverride = android; cache.Clear(); }
+
+        /// <summary>A preset option's default: the Low preset's value on Android, else 'other'.</summary>
+        static float Default(string key, float other) => AndroidDefaults ? PresetValue(PresetLow, key) : other;
 
         /// <summary>The chase camera's vertical field of view in degrees (at 16:9; the original's is OriginalFov).</summary>
         public static float FieldOfView { get => Get("fov", OriginalFov); set => Set("fov", Mathf.Clamp(value, 55f, 95f)); }
@@ -286,7 +378,8 @@ namespace GoF2Remake.Data
         /// sphere (HullBody.flyableShip), freighters, capital ships, stations, gates, turrets and objects on their real
         /// shape. Original: no mesh collision at all, the original's boxes, spheres and cubes everywhere. A session rule (the
         /// host's or the server's, -shipcollision; two rule bits, SessionRules.CollisionOf). The old toggle's key
-        /// (preciseShipCollision, on = Exact) is read until the mode is set.</summary>
+        /// (preciseShipCollision, on = Exact) is read until the mode is set. Android's default is Original (2026-10-22: no
+        /// hull meshes cooked or synced, HullCollision).</summary>
         public static int ShipCollision
         {
             get
@@ -310,7 +403,7 @@ namespace GoF2Remake.Data
             get
             {
                 float v = Get("shipCollision", -1f);
-                if (v < -0.5f) return GetBool("preciseShipCollision", false) ? R.CollisionExact : R.DefaultCollision;
+                if (v < -0.5f) return GetBool("preciseShipCollision", false) ? R.CollisionExact : AndroidDefaults ? R.CollisionOriginal : R.DefaultCollision;
                 return Mathf.Clamp(Mathf.RoundToInt(v), R.CollisionExact, R.CollisionOriginal);
             }
         }
@@ -350,6 +443,12 @@ namespace GoF2Remake.Data
         /// the HUD messages. Menus, conversations, the radio, the minigames and the touch controls always show.</summary>
         public const int HudFull = 0, HudMinimal = 1, HudOff = 2;
         public static int HudMode { get => Mathf.Clamp(Mathf.RoundToInt(Get("hudMode", HudFull)), HudFull, HudOff); set => Set("hudMode", Mathf.Clamp(value, HudFull, HudOff)); }
+        /// <summary>Remake (docs/UI-DESIGN.md "HUD"): the flight HUD's panels (status bars, readouts, lock plate, messages,
+        /// hints, crosshair) at 70..150 % of their size, apart from the menus' Interface size (FlightHud.ApplyHudLook).</summary>
+        public static int HudScalePercent { get => Mathf.Clamp(Mathf.RoundToInt(Get("hudScale", 100f)), 70, 150); set => Set("hudScale", Mathf.Clamp(value, 70, 150)); }
+        /// <summary>Remake: the flight HUD's markings at 30..100 % opacity (the messages, the radio and the menus stay
+        /// opaque; FlightHud.ApplyHudLook).</summary>
+        public static int HudOpacityPercent { get => Mathf.Clamp(Mathf.RoundToInt(Get("hudOpacity", 100f)), 30, 100); set => Set("hudOpacity", Mathf.Clamp(value, 30, 100)); }
         /// <summary>Remake (players' request, 2026-10-17: the far ship's dot hid the ship): a far ship's on-screen marker
         /// (CombatView, UI.FarShipMarkers). 0 Original: the filled dot over the ship, the ring when locked; 1 Ring: the lock
         /// ring's arcs without its centre around the ship; 2 Small dot: a small dot just above the ship. Locked, the remake's
@@ -376,6 +475,52 @@ namespace GoF2Remake.Data
         /// and the middles of the four sides, top centre by default.</summary>
         public const int FpsTopLeft = 0, FpsTop = 1, FpsTopRight = 2, FpsLeft = 3, FpsRight = 4, FpsBottomLeft = 5, FpsBottom = 6, FpsBottomRight = 7;
         public static int FpsPosition { get => Mathf.Clamp(Mathf.RoundToInt(Get("fpsPosition", FpsTop)), FpsTopLeft, FpsBottomRight); set => Set("fpsPosition", Mathf.Clamp(value, FpsTopLeft, FpsBottomRight)); }
+        /// <summary>Remake: Options > Accessibility "Interface size", a percentage of the automatic UI scale (UiLayout: the device
+        /// class and the pixel floor), 80..150, 100 by default.</summary>
+        public static int UiScalePercent { get => Mathf.Clamp(Mathf.RoundToInt(Get("uiScale", 100f)), 80, 150); set => Set("uiScale", Mathf.Clamp(value, 80, 150)); }
+
+        /// <summary>Remake: Options > Accessibility "Text size", a percentage of the type scale (UiLayout: the root's
+        /// ui-text-N class redefines the --text-* sizes, code takes UiLayout.Type), 100..200 (XAG 101: text to 200 %).</summary>
+        public static int UiTextScalePercent { get => Mathf.Clamp(Mathf.RoundToInt(Get("uiTextScale", 100f)), 100, 200); set => Set("uiTextScale", Mathf.Clamp(value, 100, 200)); }
+
+        /// <summary>Remake: Options > Accessibility "High contrast": opaque panels, brighter secondary text and lines
+        /// (GoF2Common.uss .ui-high-contrast).</summary>
+        public static bool HighContrast { get => GetBool("highContrast", false); set => SetBool("highContrast", value); }
+
+        /// <summary>Remake: Options > Accessibility "Reduce motion": no sliding / fading UI transitions (.ui-reduce-motion,
+        /// the station menu's fly-out).</summary>
+        public static bool ReduceMotion { get => GetBool("reduceMotion", false); set => SetBool("reduceMotion", value); }
+
+        /// <summary>Remake: Options > Accessibility "Colour-blind markers": friendly markers blue instead of green, so they
+        /// stand apart from the red hostile ones for red-green colour blindness (CombatView).</summary>
+        public static bool ColorblindMarkers { get => GetBool("colorblindMarkers", false); set => SetBool("colorblindMarkers", value); }
+
+        /// <summary>Remake: Options > Accessibility "Interface font" (UiFont): "" the theme's Klavika, "file:<name>" a font file
+        /// imported into the Fonts folder, "system:<family> - <style>" an installed one.</summary>
+        public static string UiFont
+        {
+            get => uiFont ??= PlayerPrefs.GetString(Prefix + "uiFont", "");
+            set
+            {
+                value ??= "";
+                if (value == UiFont) return;
+                uiFont = value;
+                PlayerPrefs.SetString(Prefix + "uiFont", value);
+                PlayerPrefs.Save();
+                Changed?.Invoke();
+            }
+        }
+        static string uiFont;
+
+        /// <summary>Remake: Options > Graphics "Interface width": the HUD and menus in a centred 16:9 or 21:9 band on a wider
+        /// screen, or the full width (UiLayout.OptionInsets).</summary>
+        public const int UiWidth16x9 = 0, UiWidth21x9 = 1, UiWidthFull = 2;
+        public static int UiWidth { get => Mathf.Clamp(Mathf.RoundToInt(Get("uiWidth", UiWidth21x9)), UiWidth16x9, UiWidthFull); set => Set("uiWidth", Mathf.Clamp(value, UiWidth16x9, UiWidthFull)); }
+
+        /// <summary>Remake: Options > Graphics "Screen edge margin", a percentage of the screen kept clear on every side (a TV
+        /// that cuts its edges off); -1 = automatic, 5 % on a TV and none elsewhere (UiLayout.OptionInsets).</summary>
+        public static float UiMarginPercent { get => Mathf.Clamp(Get("uiMargin", -1f), -1f, 10f); set => Set("uiMargin", Mathf.Clamp(value, -1f, 10f)); }
+
         /// <summary>Remake (#40): the story step at the bottom right (StoryStepLabel), for bug reports; off by default.</summary>
         public static bool ShowStoryStep { get => GetBool("showStoryStep", true); set => SetBool("showStoryStep", value); }
 
@@ -404,9 +549,9 @@ namespace GoF2Remake.Data
         public static readonly string[] SoundKeys = { "masterVolume", "musicVolume", "sfxVolume", "voiceVolume", "eachWeaponSound", "muteInBackground" };
         public static readonly string[] GraphicsKeys =
         {
-            "displayMode", "resolutionWidth", "resolutionHeight", "frameRate", "quality", "renderScale", "upscaler", "upscalerQuality",
-            "msaa", "brightness", "bloom", "bloomStyle", "hangarShadows", "hangarDof", "lensFlare", "npcPlayerEngines", "fov",
-            "cameraShake", "originalChaseCamera", "showFps", "fpsPosition",
+            "displayMode", "resolutionWidth", "resolutionHeight", "frameRate", "quality", "fireSmoke", "fog", "detailDistance", "textureFiltering", "renderScale", "upscaler", "upscalerQuality",
+            "msaa", "textureQuality", "brightness", "bloom", "bloomStyle", "hangarShadows", "lods", "hangarDof", "lensFlare", "npcPlayerEngines", "fov",
+            "cameraShake", "originalChaseCamera", "uiWidth", "uiMargin", "showFps", "fpsPosition",
         };
         public static readonly string[] ControlsKeys =
         {
@@ -417,10 +562,11 @@ namespace GoF2Remake.Data
         public static readonly string[] GameplayKeys =
         {
             "launchCamera", "hangarFlights", "tutorialHints", "showStoryStep", "pirateEvents", "capitalShips", "kaamoStacking", "kaamoMaxLevel", "kaamoKeepsEquipment", "cloakBay", "informerOriginalRule",
-            "originalTargetLock", "keepEnemyLock", "modShipTraffic", "dyingCargoMarkers", "cloakLosesPursuers", "empBreaksCloak", "smarterNpcTargeting", "shipCollision", "preciseShipCollision", "autoAdvanceDialogue", "animatedDialogue", "inputHints", "hudMode", "discordPresence",
+            "originalTargetLock", "keepEnemyLock", "modShipTraffic", "dyingCargoMarkers", "cloakLosesPursuers", "empBreaksCloak", "smarterNpcTargeting", "shipCollision", "preciseShipCollision", "autoAdvanceDialogue", "animatedDialogue", "inputHints", "hudMode", "hudScale", "hudOpacity", "discordPresence",
             "farShipMarkers", "markerDistance",
         };
         public static readonly string[] LanguageKeys = { "voiceLanguage" };
+        public static readonly string[] AccessibilityKeys = { "uiScale", "uiTextScale", "uiFont", "highContrast", "reduceMotion", "colorblindMarkers" };
 
         /// <summary>These options back to their defaults.</summary>
         public static void Reset(IEnumerable<string> keys)
@@ -429,6 +575,7 @@ namespace GoF2Remake.Data
             {
                 PlayerPrefs.DeleteKey(Prefix + key);
                 cache.Remove(key);
+                if (key == "uiFont") uiFont = null;
             }
             PlayerPrefs.Save();
             Changed?.Invoke();
@@ -441,15 +588,30 @@ namespace GoF2Remake.Data
         {
             GameHooks.ResetControls?.Invoke();
             var all = new List<string>();
-            foreach (var group in new[] { SoundKeys, GraphicsKeys, ControlsKeys, GameplayKeys, LanguageKeys }) all.AddRange(group);
+            foreach (var group in new[] { SoundKeys, GraphicsKeys, ControlsKeys, GameplayKeys, AccessibilityKeys, LanguageKeys }) all.AddRange(group);
             Reset(all);
         }
 
         // PlayerPrefs reads go through a cache: game code reads some options every frame.
         static readonly Dictionary<string, float> cache = new Dictionary<string, float>();
 
+        /// <summary>Remake (the options' per-row reset, OptionControl): what 'read' (an option's getter) gives with every
+        /// option at its default, each Get answering its fallback. False when 'read' reads no option at all (a row not
+        /// kept in Settings, e.g. the photo panel's).</summary>
+        public static bool TryDefault<T>(Func<T> read, out T value)
+        {
+            value = default;
+            if (read == null) return false;
+            defaultReads = 0;
+            try { value = read(); return defaultReads > 0; }
+            catch (Exception) { return false; }
+            finally { defaultReads = -1; }
+        }
+        static int defaultReads = -1;   // >= 0 while TryDefault reads: the options read meanwhile
+
         static float Get(string key, float fallback)
         {
+            if (defaultReads >= 0) { defaultReads++; return fallback; }
             if (cache.TryGetValue(key, out var v)) return v;
             v = PlayerPrefs.GetFloat(Prefix + key, fallback);
             cache[key] = v;

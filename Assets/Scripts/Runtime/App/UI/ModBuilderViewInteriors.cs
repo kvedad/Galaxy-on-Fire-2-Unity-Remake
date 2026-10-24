@@ -5,7 +5,7 @@
 // the camera's lens, the light and fog, a hangar's flights and parked ships, the markers (each from the model's own nodes or
 // placed here: click in the room, or "From the view" for a camera; their coordinates), and which of the project's stations
 // use it. The station scene shows the room (ModBuilder.PreviewInterior: StationLevel builds it in place of the station's,
-// in the hangar or the Space Lounge); a free camera orbits it (StationLevel.FreeCamera: drag turns, the middle button pans,
+// in the hangar or the Space Lounge); a free camera orbits it (StationLevel.FreeCamera: drag turns, the middle button or two fingers pan (a pinch zooms),
 // the wheel zooms) and the markers show as coloured balls with their names; "Game camera" shows the room through its
 // "camera" marker as the game will. A change rebuilds the room (the game reads the project, then the scene loads again).
 
@@ -35,7 +35,8 @@ namespace GoF2Remake.UI
         // the free camera: the point it orbits, yaw / pitch (rad), distance (m)
         Vector3 roomPivot;
         float roomYaw, roomPitch, roomDistance = 300f, roomRadius = 300f;
-        bool roomDragging, roomPanning;
+        bool roomDragging, roomPanning, roomTwoFingers;
+        readonly TwoFingerTouch roomTouch2 = new TwoFingerTouch();
         Vector2 roomLast;
         float roomTravel;
 
@@ -68,7 +69,7 @@ namespace GoF2Remake.UI
                 ListRow(interiorList, r.Id, sub, r == currentInterior, () => PickInterior(r), null, null);
             }
             if (Project.Interiors.Count == 0)
-                Note(interiorList, T("mbNoRooms", "No rooms yet. A station can have its own hangar and Space Lounge: a .glb room, or one of the game's rooms to start from."));
+                Note(interiorList, T("mbNoRooms", "No rooms yet. A station can have its own hangar and Space Lounge."));
         }
 
         /// <summary>Another room picked: the scene shows it (rebuilt when it isn't the one shown).</summary>
@@ -129,7 +130,7 @@ namespace GoF2Remake.UI
             RebuildInteriors();
             BuildInteriorPage();
             ShowInteriorInScene();
-            Status(T("mbRoomNeedsMarkers", "Place its markers: the model's own named nodes count, or click them into the room on the right."), false);
+            Status(T("mbRoomNeedsMarkers", "Place its markers: named nodes in the model count, or click them in."), false);
         });
 
         static readonly (string asm, string name, bool bar)[] GameRooms =
@@ -224,7 +225,7 @@ namespace GoF2Remake.UI
             var r = currentInterior;
             if (r == null) { Note(interiorPage, T("mbPickRoom", "Add a room on the left to start.")); return; }
             JsonButton(interiorPage, r.Json, () => { SaveNow(); RequestReload(false); RebuildInteriors(); BuildInteriorPage(); },
-                       T("mbJsonRoomNote", "interiors.json's fields: also materials, gateSpan, cruise, near / far, markers."));
+                       T("mbJsonRoomNote", "Also in interiors.json: materials, gateSpan, cruise, near / far, markers."));
             Heading(interiorPage, r.IsBar ? T("mbBarRoom", "Space Lounge bar") : T("mbHangarRoom", "Hangar"));
             Note(interiorPage, string.Format(T("mbRoomKey", "Stations use it as \"{0}\"."), InteriorKey(r)));
 
@@ -237,8 +238,8 @@ namespace GoF2Remake.UI
 
             // ---- markers ----
             Heading(interiorPage, T("mbMarkers", "Markers"));
-            Note(interiorPage, r.IsBar ? T("mbBarMarkersNote", "Required: camera, camera_target and at least one visitor spot. Click Place, then click in the room (a floor for the visitors).")
-                                       : T("mbHangarMarkersNote", "Required: pad (the floor your ship stands on) and camera. Click Place, then click in the room; a camera can take the free camera's place."));
+            Note(interiorPage, r.IsBar ? T("mbBarMarkersNote", "Needs camera, camera_target and a visitor spot. Click Place, then the room.")
+                                       : T("mbHangarMarkersNote", "Needs pad (where your ship stands) and camera. Click Place, then the room."));
             int ci = 0;
             foreach (var (name, required) in MarkerList(r))
             {
@@ -254,7 +255,7 @@ namespace GoF2Remake.UI
                 var place = Act(row, placingMarker == n ? T("mbClickRoom", "Click the room…") : T("mbPlace", "Place"), () => { placingMarker = placingMarker == n ? null : n; BuildInteriorPage(); }, "mbv-step");
                 place.EnableInClassList("mbv-toggle--on", placingMarker == n);
                 if (n.StartsWith("camera")) Act(row, T("mbFromView", "Use view"), () => SetMarkerFromView(r, n), "mbv-step");
-                if (placed) Act(row, "✕", () => { r.SetMarker(n, null); RoomEdited(); }, "mbv-step");
+                if (placed) Act(row, "×", () => { r.SetMarker(n, null); RoomEdited(); }, "mbv-step");
                 if (placed)
                 {
                     var xyz = Row(interiorPage, "mbv-xyz");
@@ -318,7 +319,7 @@ namespace GoF2Remake.UI
             // ---- where it is used ----
             Heading(interiorPage, T("mbUsedAt", "Used at"));
             string key = InteriorKey(r);
-            if (Project.Stations.Count == 0) Note(interiorPage, T("mbNoStationsForRoom", "Make a station (Stations kind, in space), or change one of the game's, to use this room there."));
+            if (Project.Stations.Count == 0) Note(interiorPage, T("mbNoStationsForRoom", "Make or change a station (Stations kind) to use this room there."));
             foreach (var st in Project.Stations)
             {
                 var s = st;
@@ -328,7 +329,7 @@ namespace GoF2Remake.UI
             }
         }
 
-        /// <summary>A colour as three 0..1 fields ('optional': a ✕ clears it to the default).</summary>
+        /// <summary>A colour as three 0..1 fields ('optional': a × clears it to the default).</summary>
         void ColourRow(VisualElement parent, string label, Color? value, Action<Color?> set, bool optional = true)
         {
             Caption(parent, label + (value == null ? "  (" + T("mbDefault", "default") + ")" : ""));
@@ -337,7 +338,7 @@ namespace GoF2Remake.UI
             Float(row, "R", c.r, 0f, 4f, v => set(new Color(v, c.g, c.b)));
             Float(row, "G", c.g, 0f, 4f, v => set(new Color(c.r, v, c.b)));
             Float(row, "B", c.b, 0f, 4f, v => set(new Color(c.r, c.g, v)));
-            if (optional && value != null) Act(row, "✕", () => set(null), "mbv-step");
+            if (optional && value != null) Act(row, "×", () => set(null), "mbv-step");
         }
 
         static Color MarkerColour(string name, int i) =>
@@ -347,7 +348,7 @@ namespace GoF2Remake.UI
         void SetMarkerFromView(ProjectInterior r, string name)
         {
             var room = RoomTransform;
-            if (room == null || gameCamera) { Status(T("mbFromViewFree", "Use the free camera: its place becomes the camera's, the point it turns about the target's."), false); return; }
+            if (room == null || gameCamera) { Status(T("mbFromViewFree", "Use the free camera: its place becomes the camera's, its pivot the target."), false); return; }
             var cam = level.MainCamera.transform;
             bool target = name.EndsWith("_target");
             var world = target ? roomPivot : cam.position;
@@ -434,6 +435,16 @@ namespace GoF2Remake.UI
             var room = RoomTransform;
             if (r != null && room != null && roomColliders.Count == 0 && !reloading && !reloadPending) BeginInteriorView();   // the room came after the screen
             level.FreeCamera = r != null && room != null && !gameCamera && roomColliders.Count > 0;
+            // Touch: two fingers on the room pinch to zoom and move the camera (TwoFingerTouch); never a marker's click.
+            roomTwoFingers = roomTouch2.Read(out float zoom, out var pan) && (roomDragging || roomPanning) && level.FreeCamera;
+            if (roomTwoFingers)
+            {
+                roomTravel = 1000f;
+                roomDistance = Mathf.Clamp(roomDistance * zoom, 1f, roomRadius * 5f);
+                var view = level.MainCamera != null ? level.MainCamera.transform : null;
+                float k = roomDistance * 0.0012f;
+                if (view != null) roomPivot -= view.right * pan.x * k + view.up * pan.y * k;
+            }
             if (level.FreeCamera) ApplyRoomCamera();
             ReadRoomKeys(dt);
             // The markers: a ball each (its size by the room's), their names over them.
@@ -535,7 +546,7 @@ namespace GoF2Remake.UI
                 float k = roomDistance * 0.0012f;
                 roomPivot -= cam.right * delta.x * k + cam.up * delta.y * k;
             }
-            else if (roomDragging)
+            else if (roomDragging && !roomTwoFingers)
             {
                 var turn = Settings.OrbitTurn(delta);   // #121: the camera views' own inversion
                 roomYaw += turn.x * 0.005f;

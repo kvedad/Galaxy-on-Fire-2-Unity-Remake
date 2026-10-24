@@ -5,7 +5,8 @@
 // (confirm 523). The game and its sounds pause while it is open. Options is the main menu's Options panel (OptionsView:
 // the same tabs and rows, OptionsCatalog) but the text language. Also the ChoiceWindow (Ask: Loma's toll 448, the flight hints). The share buttons (60 / 61) are dead
 // code in the original (the remake's 60 saves the picture).
-// Plain class driven by FlightHud: Esc / controller Menu / the touch Menu button open it; Esc / B step back.
+// Plain class driven by FlightHud: Esc / controller Menu / the touch Menu button open it; Esc / B step back; a click / tap
+// beside the menu resumes (remake; not on a question, which wants its answer).
 
 using System;
 using System.Collections.Generic;
@@ -15,6 +16,7 @@ using GoF2Remake.World;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
+using PointerType = UnityEngine.UIElements.PointerType;
 
 namespace GoF2Remake.UI
 {
@@ -22,8 +24,12 @@ namespace GoF2Remake.UI
     {
         enum Page { Main, Missions, Cargo, Options, Quit, Photo, Choice, Debug }
 
-        readonly VisualElement backdrop, panel, body;
+        readonly VisualElement backdrop, panel;
+        VisualElement body, pagePrompts;
         readonly Label title;
+        /// <summary>The panel shape's amber line under the title (docs/UI-DESIGN.md "Shapes"): only on the Debug page, a
+        /// window like the Options page (OptionsView); the short menus keep their plain title.</summary>
+        readonly VisualElement accent;
         readonly Action backToMenu;
         readonly List<VisualElement> items = new List<VisualElement>();
         readonly List<Action> actions = new List<Action>();
@@ -42,6 +48,17 @@ namespace GoF2Remake.UI
         public Action InfoSound;
         /// <summary>59 Action Freeze (MenuTouchWindow button 0x13 -> state 0xd); set by FlightHud.</summary>
         public PhotoMode Photo;
+        /// <summary>Modified: the hover sound (the mouse onto an entry, the keys moving the highlight); set by FlightHud.</summary>
+        public Action HoverSound;
+        /// <summary>Modified: the button sounds (true push, false release): a tab switched with Q / E, an entry taken with the
+        /// keys (a click has FlightHud.ButtonSounds); set by FlightHud.</summary>
+        public Action<bool> ButtonSound;
+
+        /// <summary>Modified: the mouse moved last: only the entry under it is highlighted (none when it is over nothing), as
+        /// in the station's and the main menu's menus; the keys / a controller bring the highlight back.</summary>
+        bool pointerDriven;
+        /// <summary>The entry (or the Options page's row / tab / footer button) under the mouse, null over nothing.</summary>
+        VisualElement pointerItem;
 
         static string T(int id) => Localization.Get(id).ToUpperInvariant();
 
@@ -56,12 +73,81 @@ namespace GoF2Remake.UI
             title.AddToClassList("autopilot-menu-title");
             title.AddToClassList("gof-semibold");
             title.AddToClassList("pause-title");
-            body = new VisualElement();
-            body.AddToClassList("pause-body");
+            body = NewBody();
+            accent = new VisualElement { pickingMode = PickingMode.Ignore };
+            accent.AddToClassList("panel-accent");
+            accent.style.display = DisplayStyle.None;
             panel.Add(title);
+            panel.Add(accent);
             panel.Add(body);
             backdrop.Add(panel);
             root.Add(backdrop);
+            // Modified: the mouse drives the highlight while it moves (see pointerDriven), with the menus' hover sound.
+            backdrop.RegisterCallback<PointerMoveEvent>(e =>
+            {
+                if (e.pointerType != PointerType.mouse || pointerDriven || !IsOpen) return;
+                pointerDriven = true;
+                Rehighlight();
+            }, TrickleDown.TrickleDown);
+            backdrop.RegisterCallback<PointerOverEvent>(e =>
+            {
+                if (e.pointerType != PointerType.mouse || !IsOpen || !(e.target is VisualElement t)) return;
+                var item = ItemAt(t);
+                if (item == pointerItem) return;
+                pointerItem = item;
+                if (pointerDriven) Rehighlight();
+            });
+            UiHover.Hook(backdrop, () => HoverSound?.Invoke());   // the tabs only (Options, Debug)
+            // Remake: a click / tap on the backdrop beside the menu resumes, as Resume. On the release, so the mouse button
+            // isn't still down as fire when the flight takes over, and only for a press that began there too.
+            backdrop.RegisterCallback<PointerDownEvent>(e => outsidePress = outsideArmed && e.target == backdrop);
+            backdrop.RegisterCallback<PointerUpEvent>(e =>
+            {
+                bool resume = outsidePress && e.target == backdrop && IsOpen && page != Page.Choice && page != Page.Photo;
+                outsidePress = false;
+                if (resume) Close();
+            });
+        }
+
+        /// <summary>The press began outside the menu with nothing over it to close first (outsideArmed).</summary>
+        bool outsidePress;
+        /// <summary>Taken at the very top of the panel before the press reaches anything: an open drop-down list, "?" window,
+        /// "Keep these settings?" or text entry closes on a press outside it, and that press shouldn't also resume.</summary>
+        bool outsideArmed;
+        IPanel armedPanel;
+
+        void ArmOutsidePress(PointerDownEvent e) =>
+            outsideArmed = !ChoicePopup.IsOpen && !OptionInfo.IsOpen && !Flight.GameControls.BlocksMenus;
+
+        /// <summary>Modified: the page's entry at 't' (the Options page: the row, tab or footer button), null when none.</summary>
+        VisualElement ItemAt(VisualElement t)
+        {
+            if (page == Page.Options && options != null)
+            {
+                foreach (var nav in options.NavItems())
+                {
+                    var area = options.RowOf(nav)?.Root ?? nav;
+                    if (area == t || area.Contains(t)) return nav;
+                }
+                return null;
+            }
+            for (var v = t; v != null && v != backdrop; v = v.parent) if (items.Contains(v)) return v;
+            return null;
+        }
+
+        void Rehighlight()
+        {
+            if (page == Page.Options) HighlightOptions();
+            else Highlight();
+        }
+
+        /// <summary>Modified: a key / button moved the highlight: the keys take over from the mouse. True when the mouse was
+        /// over nothing: this press only shows the highlight where it was (it doesn't move it yet).</summary>
+        bool KeysTakeOver()
+        {
+            if (!pointerDriven) return false;
+            pointerDriven = false;
+            return pointerItem == null;
         }
 
         // ---- open / close -----------------------------------------------------------------------------------
@@ -95,6 +181,15 @@ namespace GoF2Remake.UI
             audioWasPaused = AudioListener.pause;
             if (!GoF2Remake.Multiplayer.NetGame.Active) AudioListener.pause = true;   // multiplayer: the world (and its sound) goes on
             backdrop.AddToClassList("pause-backdrop--shown");
+            backdrop.BringToFront();   // over what was added to the HUD after it (the chat, the multiplayer buttons)
+            if (backdrop.panel != null && armedPanel != backdrop.panel)
+            {
+                armedPanel?.visualTree.UnregisterCallback<PointerDownEvent>(ArmOutsidePress, TrickleDown.TrickleDown);
+                armedPanel = backdrop.panel;
+                armedPanel.visualTree.RegisterCallback<PointerDownEvent>(ArmOutsidePress, TrickleDown.TrickleDown);
+            }
+            outsidePress = false;
+            pointerDriven = false;   // Modified: opened with a key / button: its first entry is highlighted
             Show(Page.Main);
         }
 
@@ -122,9 +217,15 @@ namespace GoF2Remake.UI
         {
             page = p;
             panel.RemoveFromClassList("pause-panel--wide");   // the Debug page's
+            accent.style.display = DisplayStyle.None;
             if (options != null) { options.Root.RemoveFromHierarchy(); options = null; }
             panel.style.display = StyleKeyword.Null;
-            body.Clear();
+            var oldBody = body;   // a new body per page: FitToContent only grows a scroll view
+            body = NewBody();
+            oldBody.parent?.Insert(oldBody.parent.IndexOf(oldBody), body);
+            oldBody.RemoveFromHierarchy();
+            pagePrompts?.RemoveFromHierarchy();
+            pagePrompts = null;
             items.Clear();
             actions.Clear();
             scroll = null;
@@ -136,7 +237,8 @@ namespace GoF2Remake.UI
                     Item(T(41), Close);
                     // MenuTouchWindow mode 1: Missions from campaign 16, the cargo hold from 2. The original leaves Missions
                     // out in the alien orbit; the remake keeps it (the objective is needed there too).
-                    int cm = Session.WorldIndex;
+                    // MenuTouchWindow::MenuTouchWindow 0x14816c: neither in the Supernova Challenge (mission type 0xb7).
+                    int cm = SupernovaChallenge.Active ? 0 : Session.WorldIndex;
                     if (cm >= 16) Item(T(129), () => Show(Page.Missions));
                     if (cm >= 2) Item(T(166), () => Show(Page.Cargo));
                     Item(T(31), () => Show(Page.Options));
@@ -164,36 +266,76 @@ namespace GoF2Remake.UI
                     Text(choiceText);
                     InfoSound?.Invoke();
                     Item((choiceYes ?? Localization.Extra("ok", "OK")).ToUpperInvariant(), () => { Close(); var a = choiceOnYes; choiceOnYes = choiceOnNo = null; a?.Invoke(); });
-                    if (choiceNo != null) Item(choiceNo.ToUpperInvariant(), () => { Close(); var a = choiceOnNo; choiceOnYes = choiceOnNo = null; a?.Invoke(); });
+                    InputGlyph.PadPrompt(items[items.Count - 1] as Button, PadButton.A, true);
+                    if (choiceNo != null)
+                    {
+                        Item(choiceNo.ToUpperInvariant(), () => { Close(); var a = choiceOnNo; choiceOnYes = choiceOnNo = null; a?.Invoke(); });
+                        InputGlyph.PadPrompt(items[items.Count - 1] as Button, PadButton.B);
+                    }
                     break;
                 case Page.Quit:
                     title.text = T(522);
                     Text(Localization.Get(523));
                     InfoSound?.Invoke();
                     Item(T(134), () => { Close(); backToMenu?.Invoke(); });
+                    InputGlyph.PadPrompt(items[items.Count - 1] as Button, PadButton.A, true);
                     Item(T(135), () => Show(Page.Main));
+                    InputGlyph.PadPrompt(items[items.Count - 1] as Button, PadButton.B);
                     index = 1;
                     break;
                 case Page.Missions:
                     title.text = T(129);
                     BuildMissions();
-                    Item("‹  " + T(170), () => Show(Page.Main));
+                    BackItem(() => Show(Page.Main));
                     break;
                 case Page.Cargo:
                     title.text = T(166);
                     BuildCargo();
-                    Item("‹  " + T(170), () => Show(Page.Main));
+                    BackItem(() => Show(Page.Main));
                     break;
                 case Page.Options:
                     BuildOptions();
                     return;
                 case Page.Debug:
                     title.text = Localization.Extra("debugTitle", "Debug").ToUpperInvariant();
+                    accent.style.display = DisplayStyle.Flex;
                     BuildDebug();
-                    Item("‹  " + T(170), () => Show(Page.Main));
+                    BackItem(() => Show(Page.Main));
+                    items[items.Count - 1].AddToClassList("debug-back");   // at the bottom left, as the Options page's
                     break;
             }
+            // Rework (docs/UI-DESIGN.md "Button prompts"): the page's keys under it, outside its scrolling body, in the divided
+            // row the Options page has (the Debug page's with its tabs and left / right; a question's answers carry their own
+            // A / B).
+            if (p != Page.Choice && p != Page.Quit)
+            {
+                pagePrompts = p == Page.Debug ? MenuKeys.DebugPrompts() : MenuKeys.Bar(MenuKeys.Rows.Select | MenuKeys.Rows.Confirm | MenuKeys.Rows.Back);
+                pagePrompts.AddToClassList("prompt-bar--row");
+                panel.Add(pagePrompts);
+            }
             Highlight();
+        }
+
+        /// <summary>The "‹ Back" entry, with B on it for a controller (InputGlyph.PadPrompt).</summary>
+        void BackItem(Action action)
+        {
+            Item("‹  " + T(170), action);
+            InputGlyph.PadPrompt(items[items.Count - 1] as Button, PadButton.B);
+        }
+
+        /// <summary>Rework: a page's body scrolls when it is taller than the panel (a 720-unit-high screen at a large text
+        /// size: the last entries and the prompts went under the screen's edge): as tall as its content, shrunk by the panel's
+        /// 86 %, the selection kept in view (Highlight).</summary>
+        static ScrollView NewBody()
+        {
+            var sv = new ScrollView(ScrollViewMode.Vertical)
+            {
+                horizontalScrollerVisibility = ScrollerVisibility.Hidden,
+                verticalScrollerVisibility = ScrollerVisibility.Hidden,
+            };
+            sv.AddToClassList("pause-body");
+            FitToContent(sv, float.MaxValue);
+            return sv;
         }
 
         void Item(string text, Action action)
@@ -233,7 +375,11 @@ namespace GoF2Remake.UI
             float set = 0f;
             sv.contentContainer.RegisterCallback<GeometryChangedEvent>(e =>
             {
-                float want = Mathf.Min(max, Mathf.Ceil(e.newRect.height));
+                // Rework: never more than half the screen's height, so the title, the buttons and the prompts stay on a
+                // short panel (720 units on a phone or at a large interface size: 560 pushed Back off the bottom).
+                float screen = sv.panel != null ? sv.panel.visualTree.layout.height : 0f;
+                float limit = screen > 0f && max < float.MaxValue ? Mathf.Min(max, screen * 0.5f) : max;   // the Debug page: the panel's own limit
+                float want = Mathf.Min(limit, Mathf.Ceil(e.newRect.height));
                 if (want <= set + 0.5f) return;
                 set = want;
                 sv.style.height = want;
@@ -247,7 +393,7 @@ namespace GoF2Remake.UI
             Scroll();
             Text(T(555), "pause-heading");
             bool story = !Session.FreePlay && Story.Step != null && Story.Step.objectiveText >= 0 && db != null;   // as MissionsWindow
-            Text(story ? Story.ObjectiveText(db) : Localization.Get(174));
+            Text(story ? Story.ObjectiveText(db) : Localization.Extra("missionsNoStory", "No story mission right now."));
             Text(T(556), "pause-heading");
             var m = Freelance.Mission;
             if (Freelance.Active && db != null)
@@ -256,7 +402,7 @@ namespace GoF2Remake.UI
                 Text($"{m.clientName} · {station} · {m.Name}", "pause-subheading");
                 Text(MissionsWindow.FreelanceText(db, m));
             }
-            else Text(Localization.Get(174));
+            else Text(Localization.Extra("missionsNoFreelance", "No mission taken. The visitors in a Space Lounge offer work."));
             if (!Session.FreePlay && Session.CampaignMission >= WantedBoard.StorylineFirst && db != null) BuildWanted(db);
         }
 
@@ -279,7 +425,7 @@ namespace GoF2Remake.UI
                 Text($"{T(3223)} {Place(state.lastSeen)}\n{T(3224)} {Place(state.travelsTo)}");
                 shown++;
             }
-            if (shown == 0) Text(Localization.Get(174));
+            if (shown == 0) Text(Localization.Extra("wantedNoneMoving", "No criminals are on the move."));
         }
 
         /// <summary>The cargo hold: every cargo stack with its tonnage, and the load against the capacity.</summary>
@@ -289,7 +435,7 @@ namespace GoF2Remake.UI
             int load = Shop.CargoLoad(), max = db != null ? Shop.MaxLoad(db) : 0;
             Text($"{load} / {max} t", load > max ? "pause-heading--red" : "pause-heading");
             Scroll();
-            if (Session.Cargo.Count == 0) { Text(Localization.Get(174)); return; }
+            if (Session.Cargo.Count == 0) { Text(Localization.Extra("cargoEmpty", "The cargo hold is empty.")); return; }
             foreach (var s in Session.Cargo)
             {
                 var row = new VisualElement { pickingMode = PickingMode.Ignore };
@@ -338,7 +484,16 @@ namespace GoF2Remake.UI
             if (options == null) return;
             var items = options.NavItems();
             optionIndex = Mathf.Clamp(optionIndex, 0, items.Count - 1);
-            options.Select(InputMode.Current != InputKind.Touch ? items[optionIndex] : null);
+            if (InputMode.Current == InputKind.Touch) { options.Select(null); return; }
+            if (pointerDriven)
+            {
+                // Modified: with the mouse only the row under it (the keys go on from there).
+                int under = pointerItem != null ? items.IndexOf(pointerItem) : -1;
+                if (under >= 0) optionIndex = under;
+                options.Select(under >= 0 ? pointerItem : null, false);
+                return;
+            }
+            options.Select(items[optionIndex]);
         }
 
         // Held directions repeat (HeldRepeat): up / down walk on, left / right step a slider or a stepper on; a toggle, the tab
@@ -378,10 +533,12 @@ namespace GoF2Remake.UI
             int tab = 0;
             if ((kb != null && kb.qKey.wasPressedThisFrame) || (pad != null && pad.leftShoulder.wasPressedThisFrame)) tab = -1;
             if ((kb != null && kb.eKey.wasPressedThisFrame) || (pad != null && pad.rightShoulder.wasPressedThisFrame)) tab = 1;
-            if (tab != 0) { options.StepTab(tab); return; }
+            if (tab != 0) { ButtonSound?.Invoke(false); options.StepTab(tab); return; }   // Modified: the tab's sound
 
             var items = options.NavItems();
             int move = Vertical(kb, pad);
+            // Modified: the keys take over from the mouse (the first press only shows the highlight when it was over nothing).
+            if (move != 0 && KeysTakeOver()) { HighlightOptions(); HoverSound?.Invoke(); return; }
             if (move != 0)
             {
                 // The footer (Back and Default settings, or the defaults prompt's buttons) is one row: down from it stays,
@@ -390,23 +547,34 @@ namespace GoF2Remake.UI
                 bool inFooter = options.IsFooter(items[optionIndex]);
                 if (move > 0 && inFooter) next = optionIndex;
                 if (move < 0 && inFooter) next = options.FooterStart(items) - 1;
-                optionIndex = Mathf.Clamp(next, 0, items.Count - 1);
+                next = Mathf.Clamp(next, 0, items.Count - 1);
+                if (next != optionIndex) HoverSound?.Invoke();   // Modified: the arrows' sound
+                optionIndex = next;
                 HighlightOptions();
                 return;
             }
             int side = Sideways(kb, pad);
+            if (side != 0 && KeysTakeOver()) { HighlightOptions(); HoverSound?.Invoke(); return; }
             var current = items[optionIndex];
             var row = options.RowOf(current);
             if (side != 0)
             {
-                if (options.IsTab(current)) { if (sideRepeat.Fresh) options.StepTab(side); }
+                if (options.IsTab(current)) { if (sideRepeat.Fresh) { ButtonSound?.Invoke(false); options.StepTab(side); } }
                 else if (row != null) { if (sideRepeat.Fresh || row.StepsSideways) row.Step(side); KeepOptionSelected(current); }
-                else if (options.IsFooter(current)) { optionIndex = items.IndexOf(options.FooterStep(current, side)); HighlightOptions(); }
+                else if (options.IsFooter(current))
+                {
+                    int next = items.IndexOf(options.FooterStep(current, side));
+                    if (next != optionIndex) HoverSound?.Invoke();
+                    optionIndex = next;
+                    HighlightOptions();
+                }
                 return;
             }
             bool confirm = (kb != null && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame))
                            || (pad != null && pad.buttonSouth.wasPressedThisFrame);
             if (!confirm) return;
+            if (pointerDriven && pointerItem == null) { KeysTakeOver(); HighlightOptions(); return; }   // Modified: nothing marked yet
+            ButtonSound?.Invoke(false);   // Modified: the entry's sound (a click has its own)
             if (row != null) { row.Activate(); KeepOptionSelected(current); }
             else if (options.IsFooter(current)) options.Activate(current);   // Back, Default settings, the defaults prompt
         }
@@ -443,10 +611,8 @@ namespace GoF2Remake.UI
                 b.clicked += () => { debugTab = tab; Show(Page.Debug); };
                 tabs.Add(b);
             }
-            var hint = new Label(InputMode.Current == InputKind.Gamepad ? "LB  ◂  ▸  RB" : InputMode.Current == InputKind.Touch ? "" : "Q  ◂  ▸  E")
-                { pickingMode = PickingMode.Ignore };
-            hint.AddToClassList("debug-tab-hint");
-            tabs.Add(hint);
+            // Modified: a "?" with what the page is for at the tab row's end; its keys as a prompt row under the page.
+            MenuKeys.AddDebugIcons(tabs);
             body.Add(tabs);
 
             var status = new Label(debugStatus) { pickingMode = PickingMode.Ignore };
@@ -575,9 +741,14 @@ namespace GoF2Remake.UI
         void Highlight()
         {
             bool keys = InputMode.Current != InputKind.Touch;
-            for (int i = 0; i < items.Count; i++) items[i].EnableInClassList("autopilot-menu-item--selected", keys && i == index);
-            // A long page (the Debug page on a short screen): the selected row scrolls into view.
-            if (keys && scroll != null && index >= 0 && index < items.Count && scroll.contentContainer.Contains(items[index])) scroll.ScrollTo(items[index]);
+            // Modified: with the mouse only the entry under it (none over nothing); the keys go on from there.
+            int under = pointerDriven && pointerItem != null ? items.IndexOf(pointerItem) : -1;
+            if (under >= 0) index = under;
+            int marked = !keys ? -1 : pointerDriven ? under : index;
+            for (int i = 0; i < items.Count; i++) items[i].EnableInClassList("autopilot-menu-item--selected", i == marked);
+            // A long page (the Debug page on a short screen): the selected row scrolls into view (not under the mouse).
+            if (keys && !pointerDriven && scroll != null && index >= 0 && index < items.Count && scroll.contentContainer.Contains(items[index])) scroll.ScrollTo(items[index]);
+            else if (keys && !pointerDriven && body is ScrollView page && index >= 0 && index < items.Count && page.contentContainer.Contains(items[index])) page.ScrollTo(items[index]);
         }
 
         // ---- input (unscaled: the game is paused) -------------------------------------------------------------
@@ -599,7 +770,11 @@ namespace GoF2Remake.UI
                 if ((kb != null && (kb.escapeKey.wasPressedThisFrame || kb.backspaceKey.wasPressedThisFrame))
                     || (pad != null && (pad.buttonEast.wasPressedThisFrame || pad.startButton.wasPressedThisFrame)))
                 {
-                    if (!options.CloseResetPrompt()) Show(Page.Main);   // back closes the defaults prompt first
+                    // An option's open drop-down or its "?" window closes first, as in the main menu (MainMenu.EscBack):
+                    // both are laid over the whole document, so a page closed under one left it drawing over the next.
+                    if (ChoicePopup.IsOpen) ChoicePopup.Close();
+                    else if (OptionInfo.IsOpen) OptionInfo.Hide();
+                    else if (!options.CloseResetPrompt()) Show(Page.Main);   // back closes the defaults prompt first
                     return;
                 }
                 TickOptions(kb, pad);
@@ -619,12 +794,20 @@ namespace GoF2Remake.UI
                 int tab = 0;
                 if ((kb != null && kb.qKey.wasPressedThisFrame) || (pad != null && pad.leftShoulder.wasPressedThisFrame)) tab = -1;
                 if ((kb != null && kb.eKey.wasPressedThisFrame) || (pad != null && pad.rightShoulder.wasPressedThisFrame)) tab = 1;
-                if (tab != 0) { debugTab = (debugTab + tab + debugTabCount) % debugTabCount; Show(Page.Debug); return; }
+                if (tab != 0) { ButtonSound?.Invoke(false); debugTab = (debugTab + tab + debugTabCount) % debugTabCount; Show(Page.Debug); return; }   // Modified: the tab's sound
             }
             int move = Vertical(kb, pad);
+            int sideFirst = Sideways(kb, pad);
+            // Modified: the keys take over from the mouse; over nothing the first press only shows the highlight.
+            if ((move != 0 || sideFirst != 0) && KeysTakeOver()) { Highlight(); HoverSound?.Invoke(); return; }
+            int indexBefore = index;
+            bool gridMoved = false;
             bool debugGrid = page == Page.Debug && items.Count > 0 && index >= 0 && index < items.Count;
             if (debugGrid && move != 0 && optionRows.TryGetValue(items[index], out var gridRow) && CheatsCatalog.MoveVertical(gridRow.Field, move))
+            {
                 move = 0;   // the item grid moved its pick a row
+                gridMoved = true;
+            }
             if (debugGrid && move != 0)
             {
                 // The Debug page moves on screen (SpatialNav): the toggles stand two to a row, the Give items buttons
@@ -646,7 +829,7 @@ namespace GoF2Remake.UI
                 if (scroll != null && scroll.contentContainer.Contains(items[index])) scroll.ScrollTo(items[index]);
                 else if (scroll != null) scroll.scrollOffset += new Vector2(0f, move * 120f);
             }
-            int side = Sideways(kb, pad);
+            int side = sideFirst;
             var current = index < items.Count ? items[index] : null;
             optionRows.TryGetValue(current ?? backdrop, out var option);
             if (side != 0 && debugGrid && (option == null || !option.StepsSideways))
@@ -656,9 +839,12 @@ namespace GoF2Remake.UI
                 if (next != null) { index = items.IndexOf(next); Highlight(); current = next; optionRows.TryGetValue(current, out option); }
             }
             else if (side != 0 && option != null && (sideRepeat.Fresh || option.StepsSideways)) option.Step(side);
+            if (index != indexBefore || gridMoved) HoverSound?.Invoke();   // Modified: the arrows' sound
             bool confirm = (kb != null && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame))
                            || (pad != null && pad.buttonSouth.wasPressedThisFrame);
             if (!confirm || current == null) return;
+            if (pointerDriven && pointerItem == null) { KeysTakeOver(); Highlight(); return; }   // Modified: nothing marked yet
+            ButtonSound?.Invoke(false);   // Modified: the entry's sound (a click has its own)
             if (option != null) option.Activate();
             else actions[index]?.Invoke();
         }

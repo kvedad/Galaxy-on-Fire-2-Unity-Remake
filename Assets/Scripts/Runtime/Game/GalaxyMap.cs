@@ -15,6 +15,7 @@ using UnityEngine;
 
 namespace GoF2Remake.Data
 {
+    [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public static class GalaxyMap
     {
         public const int KhadorDriveItem = 85, EnergyCellItem = 122;
@@ -67,14 +68,21 @@ namespace GoF2Remake.Data
         /// <summary>Remake mods: the map as shown now: the revealed systems (Session.SystemVisible, what is saved), each system an
         /// event / quest showed or hid (Session.SystemShown) and each with a mod's "available" condition (ModUnlocks) as they
         /// say. A copy, so hiding a system for a while doesn't forget that it was revealed; Session.SystemVisible itself when
-        /// nothing overrides it.</summary>
+        /// nothing overrides it. A placeholder of a mod that is off or gone (Modding.ModWorld.IsMissingSystem: "?" at -1000 on
+        /// every axis, its number kept by the mod registry) is never shown, revealed or not: the map's overview zoomed out to
+        /// frame it, also on games with no mod installed any more.</summary>
         static bool[] Effective(bool[] revealed)
         {
-            if (Session.SystemShown.Count == 0 && !Modding.ModUnlocks.AnySystemConditions) return revealed;
+            bool missing = false;
+            for (int i = 0; i < revealed.Length && !missing; i++) missing = revealed[i] && Modding.ModWorld.IsMissingSystem(i);
+            if (Session.SystemShown.Count == 0 && !Modding.ModUnlocks.AnySystemConditions && !missing) return revealed;
             if (effective == null || effective.Length != revealed.Length) effective = new bool[revealed.Length];
             System.Array.Copy(revealed, effective, revealed.Length);
             for (int i = 0; i < effective.Length; i++)
+            {
                 if (Forced(i) is bool shown) effective[i] = shown;
+                if (missing && Modding.ModWorld.IsMissingSystem(i)) effective[i] = false;
+            }
             return effective;
         }
 
@@ -119,7 +127,8 @@ namespace GoF2Remake.Data
             if (last >= 0 && db.Stations.Find(x => x.index == last) is StationData ls && ls.system != system && Shown(ls.system)) return last;
             foreach (var s in db.Systems)
                 if (s.index != system && Shown(s.index) && StationIn(s.index) is int st && st >= 0) return st;
-            return 78;
+            // Var Hastra only when Mido is shown (a mod campaign's galaxy can leave it out): -1 = nowhere to go.
+            return db.Stations.Find(x => x.index == 78) is StationData vh && Shown(vh.system) ? 78 : -1;
         }
 
         /// <summary>An event's / quest's "system &lt;system&gt; show | hide | reset" (NetAdmin Order.System): 'shown' true / false
@@ -252,6 +261,13 @@ namespace GoF2Remake.Data
             {
                 var p = list[k];
                 p.orbitYaw = rnd.NextInt(3141) / 1000f;
+                // Remake mods: stations.json "mapPlace" (after the draws, so the others keep their places).
+                var place = Modding.ModWorld.MapPlaceOf(p.station);
+                if (place != null)
+                {
+                    if (place.angle.HasValue) p.angle = Mathf.RoundToInt(place.angle.Value / 360f * 65536f);
+                    if (place.distance.HasValue) p.radius = Mathf.RoundToInt(place.distance.Value);
+                }
                 list[k] = p;
             }
             return list;

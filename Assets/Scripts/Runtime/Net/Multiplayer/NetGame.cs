@@ -88,6 +88,7 @@ namespace GoF2Remake.Multiplayer
             hostEndReason = null;
             JoinCode = null;
             hostAllocation = null;
+            HostRegion = "";
             listPending = false;
             playersSpawned.Clear();
         }
@@ -201,6 +202,11 @@ namespace GoF2Remake.Multiplayer
         public static string JoinCode { get; private set; }
         static Allocation hostAllocation;
 
+        /// <summary>The Unity Relay region an online session runs through (Allocation.Region, "europe-west4"), empty
+        /// for a local one: the listing carries it, so the browser can say where a game is and measure the round trip
+        /// to it (NetPing).</summary>
+        public static string HostRegion { get; private set; } = "";
+
         /// <summary>"ABC123": a Relay join code (6 letters / digits, no dots or colons), not an address.</summary>
         public static bool IsJoinCode(string text)
         {
@@ -245,6 +251,7 @@ namespace GoF2Remake.Multiplayer
             Status = "";
             hostAllocation = null;
             JoinCode = null;
+            HostRegion = "";
             listPending = listName != null;
             NetGame.listName = listName;
             try
@@ -255,6 +262,7 @@ namespace GoF2Remake.Multiplayer
                 var allocation = await RelayService.Instance.CreateAllocationAsync(Mathf.Clamp(connections, 1, MaxPlayersLimit));
                 JoinCode = await RelayService.Instance.GetJoinCodeAsync(allocation.AllocationId);
                 hostAllocation = allocation;
+                HostRegion = allocation.Region ?? "";
                 return true;
             }
             catch (Exception e)
@@ -501,6 +509,16 @@ namespace GoF2Remake.Multiplayer
 
         static bool closing, quitAfter, lostHandled;
         static string hostEndReason;
+
+        /// <summary>The main menu: hosting or joining threw (a bug, or data it couldn't read). The half-started session goes,
+        /// and the reason is the panel's status line instead of the menu waiting on its fade or "Connecting..." for good.</summary>
+        public static void AbortStart(Exception e)
+        {
+            Debug.LogException(e);
+            try { Shutdown(); }
+            catch (Exception again) { Debug.LogException(again); }
+            Status = string.Format(Localization.Extra("mpStartError", "Couldn't start the session: {0}"), e.GetBaseException().Message);
+        }
 
         /// <summary>Ends the session (leaving to the main menu, a failed connection). The host with players connected tells
         /// them why first and closes a moment later (NetDelayedShutdown), so the reason reaches them.</summary>
@@ -859,9 +877,9 @@ namespace GoF2Remake.Multiplayer
                 response.Approved = false;
                 response.Reason = theirVersion == Version
                     ? string.Format(Localization.Extra("mpWrongBuild",
-                        "This game runs a different build of version {0}. Both need the same game files to play together."), Version)
+                        "This game runs another build of {0}: both need the same game files."), Version)
                     : string.Format(Localization.Extra("mpWrongVersion",
-                        "This game runs version {0}, yours is {1}. Both need the same version to play together."),
+                        "This game runs version {0}, yours is {1}: both need the same version."),
                         Version, theirVersion.Length > 0 ? theirVersion : Localization.Extra("mpOlderVersion", "an older one"));
                 Debug.Log($"NetGame: turned away client {request.ClientNetworkId}, version '{theirVersion}' / '{theirs}' (this one {Version} / {Protocol})");
                 return;

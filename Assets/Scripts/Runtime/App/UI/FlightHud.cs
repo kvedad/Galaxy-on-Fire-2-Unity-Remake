@@ -110,6 +110,7 @@ namespace GoF2Remake.UI
         ChaseCamera chase;
         Vector2Int lastScreen;
         Rect lastSafeArea;
+        int lastLayout = -1;
 
         /// <summary>Remake: the radar ellipse's size against the original's 657 x 491 (a 1080-high canvas): the phone layout's
         /// panel is 900 high, so there it shrinks by 900 / 1080 to keep the original's share of the screen height (at full size
@@ -127,6 +128,7 @@ namespace GoF2Remake.UI
                 panelRenderer.panelSettings = runtimePanel;
             }
             InputMode.Changed += ApplyInputMode;
+            Localization.Changed += RefreshTexts;   // Modified: the in-game Options' language row applies at once
             GameControls.Changed += ApplyInputMode;   // a rebound key: the hints show it
             Gun.LockShaken += OnLockShaken;
             ShipController.DampenersChanged += OnDampeners;
@@ -164,6 +166,7 @@ namespace GoF2Remake.UI
             if (health != null) health.GameOverStarted -= OnGameOver;
             panelRenderer?.UnregisterUIReloadCallback(OnUIReload);
             InputMode.Changed -= ApplyInputMode;
+            Localization.Changed -= RefreshTexts;
             GameControls.Changed -= ApplyInputMode;
             Gun.LockShaken -= OnLockShaken;
             ShipController.DampenersChanged -= OnDampeners;
@@ -181,6 +184,9 @@ namespace GoF2Remake.UI
         void OnUIReload(PanelRenderer renderer, VisualElement rootElement, int version)
         {
             root = rootElement;
+            ScrollBars.Watch(rootElement);   // Modified: the hangar's scrollbar on every scroll view that needs one
+            PadKeyboard.Attach(rootElement);   // a controller's keyboard for the chat's text field (docs/UI-DESIGN.md "Text entry")
+            KeyboardLift.Watch(rootElement);   // phones: the focused text field kept above the on-screen keyboard
             root.style.flexGrow = 1;   // no default theme to stretch the document root
             root.pickingMode = PickingMode.Ignore;
             safeArea = root.Q("safeArea");
@@ -218,6 +224,7 @@ namespace GoF2Remake.UI
             HookPress(dockPrompt, null, Interact);
             miningView = new MiningView(root);
             readout = new HudReadout(safeArea);
+            challengeView = new ChallengeView(safeArea);   // the Supernova Challenge's score and combo
             hackingView = new HackingView(root);
             transferCounter = new Label { pickingMode = PickingMode.Ignore };
             transferCounter.AddToClassList("transfer-counter");
@@ -250,8 +257,12 @@ namespace GoF2Remake.UI
             storyDialogue = new DialogueView(root, voiceSource) { ButtonSound = PlayButton };
             pauseMenu?.Close();   // a UI reload rebuilds it: don't leave the game paused
             pauseMenu = new PauseMenu(root, BackToMenu);
-            ButtonSounds(root.Q(className: "pause-backdrop"));
+            ButtonSounds(root);   // Modified: every button and toggle of the HUD's menus (was the pause menu's and the autopilot menu's)
+            UiSounds.Attach(root, false);   // Rework: a focus move by the keys / a controller in its windows (the multiplayer window...)
+            UiFocus.SkipScrollBars(root);
             pauseMenu.InfoSound = () => PlayUi(CombatAudio.Load()?.messageInfo);
+            pauseMenu.HoverSound = PlayHover;   // Modified: the menus' hover / arrow sound
+            pauseMenu.ButtonSound = PlayButton;
             pauseMenu.Photo = new PhotoMode(root, this) { ButtonSound = PlayButton };
             radioBox = root.Q("radio");
             screenFade = root.Q("screenFade");
@@ -266,17 +277,53 @@ namespace GoF2Remake.UI
             gameOver.RegisterCallback<PointerDownEvent>(_ => LoadLastSave());
             navView.AutopilotButton += OnAutopilotButton;
             autopilotMenu = root.Q("autopilotMenu");
-            ButtonSounds(autopilotMenu);
+            // Modified: the mouse drives the menu's highlight while it moves (only the entry under it, none over nothing; no hover
+            // sound: the cursor crossing it made a burst of them); the keys / a controller bring the highlight back
+            // (UpdateAutopilotMenu, with the arrows' sound).
+            autopilotMenu.RegisterCallback<PointerMoveEvent>(e =>
+            {
+                if (e.pointerType != UnityEngine.UIElements.PointerType.mouse || menuPointer) return;
+                menuPointer = true;
+                HighlightMenu();
+            }, TrickleDown.TrickleDown);
+            autopilotMenu.RegisterCallback<PointerOverEvent>(e =>
+            {
+                if (e.pointerType != UnityEngine.UIElements.PointerType.mouse || !(e.target is VisualElement t)) return;
+                var b = MenuButtonAt(t);
+                if (b == menuHover) return;
+                menuHover = b;
+                if (menuPointer) HighlightMenu();
+            });
+            autopilotMenu.RegisterCallback<PointerLeaveEvent>(e =>
+            {
+                if (e.target != autopilotMenu) return;
+                menuHover = null;
+                if (menuPointer) HighlightMenu();
+            });
             autopilotMenuItems = root.Q("autopilotMenuItems");
             root.Q<Label>("autopilotMenuTitle").text = Localization.Get(571).ToUpperInvariant();   // Autopilot
             var menuIcon = Resources.Load<Texture2D>("GoF2Hud/autopilot_title");
             if (menuIcon != null) root.Q("autopilotMenuIcon").style.backgroundImage = new StyleBackground(menuIcon);
             BuildTouchControls();
 
-            root.Q<Label>("dockLabel").text = Localization.Extra("hudDock", "DOCK");
+            RefreshTexts();
 
             ApplyInputMode();
             UpdateLayout();
+        }
+
+        /// <summary>Modified: the few labels this HUD writes once while it is built, read again from the table loaded now
+        /// (Localization.Changed), so the in-game Options' language row applies in flight without leaving the level. Every
+        /// other text here is written as it is shown (the lock plate, HUD messages, the menu titles, the orbit information)
+        /// and already reads the table each time; the key hints are rebuilt with BuildHints.</summary>
+        public void RefreshTexts()
+        {
+            if (root == null) return;
+            if (jumpChargeLabel != null) jumpChargeLabel.text = Localization.Get(318).ToUpperInvariant();   // Drive charging
+            root.Q<Label>("gameOverTitle").text = Localization.Get(319).ToUpperInvariant();                // Game Over
+            root.Q<Label>("autopilotMenuTitle").text = Localization.Get(571).ToUpperInvariant();           // Autopilot
+            root.Q<Label>("dockLabel").text = Localization.Extra("hudDock", "DOCK");
+            BuildHints(InputMode.Current);
         }
 
         /// <summary>Radar::draw's faint radar ellipse (image 0x4c7, the top-left quarter, 657 x 491): drawn four times mirrored
@@ -315,7 +362,9 @@ namespace GoF2Remake.UI
                 SecondaryReleased = () => { if (!MiningOrDocked) weapons?.FireSecondary(); },
                 // The booster also on the way to an asteroid (refused only while drilling, PlayerEgo::isMining).
                 BoostReleased = () => { if (!Drilling && (docking == null || !docking.Busy)) ship?.Boost(); },
-                CameraReleased = () => { if (mining == null || mining.State == Mining.Phase.Idle) level?.FreeLook?.Cycle(); },
+                CameraPressed = () => level?.FreeLook?.CameraDown(),
+                CameraReleased = () => level?.FreeLook?.CameraUp(mining == null || mining.State == Mining.Phase.Idle),
+                CameraCancelled = () => level?.FreeLook?.CameraUp(false),
                 MenuReleased = OnActionsButton,
                 TurretReleased = () => level?.Turret?.Toggle(),
                 PausePressed = () => PlayButton(true),
@@ -373,13 +422,40 @@ namespace GoF2Remake.UI
         /// clicks (no stick, the cluster in the bottom-right corner). While the mouse steers they are invisible (alpha 0).</summary>
         bool cursorMode;
 
+        /// <summary>The touch controls show this frame with the autopilot / fast-forward block (UpdateTouch): not under the
+        /// pause menu, a conversation, the star map or death, nor in a cutscene, jump or the launch camera (pause button
+        /// only). NavigationView shows the block by it; it only asked for touch input, so it stayed over the pause menu.</summary>
+        bool touchNavShown;
+
+        float readoutRight = -1f;
+
+        /// <summary>The top readout (cargo, timer) left of the touch pause button (0x4b8 at w - 121) while that shows, its right
+        /// edge 19 units clear (the original's readout at w - 140): measured from the button where it actually is, not by the
+        /// root's input-touch class (the .input-touch .hud-readout rule), which a phone showed the readout over the button
+        /// without (a player's report). -1 = the style sheet's place.</summary>
+        void KeepReadoutClearOfPause()
+        {
+            var box = readout != null ? readout.Root : null;
+            if (box == null || box.parent == null) return;
+            var pause = touch != null ? touch.PauseButton : null;
+            float right = -1f;
+            if (pause != null && pause.resolvedStyle.display == DisplayStyle.Flex && pause.worldBound.width > 0f)
+                right = Mathf.Max(40f, box.parent.worldBound.xMax - pause.worldBound.xMin + 19f);
+            if (Mathf.Abs(right - readoutRight) < 0.5f) return;
+            readoutRight = right;
+            box.style.right = right < 0f ? new StyleLength(StyleKeyword.Null) : new StyleLength(right);
+        }
+
         /// <summary>The touch controls' state for this frame (Hud::draw's conditions, MGame::OnRender2D's hiding).</summary>
         void UpdateTouch()
         {
             if (touch == null) return;
             var f = new TouchControls.Frame { mode = TouchControls.Mode.Off, nextCamera = -1 };
+            touchNavShown = false;
             bool touchMode = InputMode.Current == InputKind.Touch;
-            cursorMode = !Application.isMobilePlatform && InputMode.Current == InputKind.KeyboardMouse && !Settings.MouseSteering;
+            // Phones and tablets too, with a mouse connected (a keyboard alone keeps the keycap hints).
+            cursorMode = InputMode.Current == InputKind.KeyboardMouse && !Settings.MouseSteering
+                         && (!Application.isMobilePlatform || Mouse.current != null);
             root.EnableInClassList("hud-cursor", cursorMode);
             bool flying = ship != null && level != null && !StarMap.IsOpen && !pauseMenu.IsOpen && !storyDialogue.IsOpen
                           && (health == null || !health.Dead);
@@ -390,6 +466,7 @@ namespace GoF2Remake.UI
                 f.cinematic = cinematic;
                 f.mode = cinematic || (carrierShop != null && carrierShop.IsOpen) ? TouchControls.Mode.PauseOnly
                        : nav != null && nav.MenuOpen ? TouchControls.Mode.MenuOpen : TouchControls.Mode.Full;
+                touchNavShown = f.mode != TouchControls.Mode.PauseOnly;
                 var phase = mining != null ? mining.State : Mining.Phase.Idle;
                 bool dockBusy = docking != null && docking.Busy;
                 var turret = level.Turret;
@@ -445,6 +522,7 @@ namespace GoF2Remake.UI
             }
             if (!f.gauge) lastThrust = -1f;
             touch.Update(f, Time.unscaledDeltaTime * 1000f);
+            KeepReadoutClearOfPause();
         }
 
 
@@ -546,14 +624,12 @@ namespace GoF2Remake.UI
                 {
                     Hint(T("hudSelect", "SELECT"), InputGlyph.Key("↑"), InputGlyph.Key("↓"));
                     Hint(T("shopBuy", "BUY"), InputGlyph.Key("→"), InputGlyph.Key("ENTER", true));
-                    Hint(T("shopBuyAll", "BUY ALL"), InputGlyph.Key("SHIFT", true), InputGlyph.Key("→"));
                     Hint(T("hudUndock", "UNDOCK"), InputGlyph.Key("ESC"));
                 }
                 else
                 {
                     Hint(T("hudSelect", "SELECT"), InputGlyph.Pad(PadButton.DPad));
                     Hint(T("shopBuy", "BUY"), InputGlyph.Pad(PadButton.A));
-                    Hint(T("shopBuyAll", "BUY ALL"), InputGlyph.Pad(PadButton.X));
                     Hint(T("hudUndock", "UNDOCK"), InputGlyph.Pad(PadButton.B));
                 }
                 return;
@@ -627,7 +703,8 @@ namespace GoF2Remake.UI
                 Hint(T("hudFreeLook", "FREE LOOK"), GameControls.FreeLookHold);
                 if (FirstAuto() != null) Hint(Localization.Get(37).ToUpperInvariant(), GameControls.AutoTurret);
                 if (HasManualTurret()) Hint(T("hudTurretView", "TURRET VIEW"), GameControls.Camera);
-                Hint(Localization.Get(571).ToUpperInvariant(), GameControls.AutopilotMenu);
+                CockpitHint(pad);
+                if (!SupernovaChallenge.Active) Hint(Localization.Get(571).ToUpperInvariant(), GameControls.AutopilotMenu);   // no autopilot menu there (0xb7)
                 if (nav != null && nav.MenuEntries(true).Count > 0) Hint(T("hudActions", "ACTIONS"), GameControls.ActionsMenu);
                 Hint(T("hudMenu", "MENU"), menuKey);
                 return;
@@ -648,9 +725,20 @@ namespace GoF2Remake.UI
             // Remake: a ship may carry an auto turret and a manual one at once: a hint for each kind it has.
             if (FirstAuto() != null) Hint(Localization.Get(37).ToUpperInvariant(), GameControls.AutoTurret);
             if (HasManualTurret()) Hint(T("hudTurretView", "TURRET VIEW"), GameControls.Camera);
-            Hint(Localization.Get(571).ToUpperInvariant(), GameControls.AutopilotMenu);
+            CockpitHint(pad);
+            if (!SupernovaChallenge.Active) Hint(Localization.Get(571).ToUpperInvariant(), GameControls.AutopilotMenu);   // no autopilot menu there (0xb7)
             if (nav != null && nav.MenuEntries(true).Count > 0) Hint(T("hudActions", "ACTIONS"), GameControls.ActionsMenu);
             Hint(T("hudMenu", "MENU"), menuKey);
+        }
+
+        /// <summary>The cockpit view's own key (F2), or with a controller the camera button held (FreeLookCamera.ToggleCockpit;
+        /// it left the camera cycle). Not in VR, which flies from the seat.</summary>
+        void CockpitHint(bool pad)
+        {
+            if (VrFlags.Enabled) return;
+            string T(string key, string english) => Localization.Extra(key, english).ToUpperInvariant();
+            if (pad) Hint(T("hudCockpit", "COCKPIT") + " (" + T("hudHold", "HOLD") + ")", GameControls.Camera);
+            else Hint(T("hudCockpit", "COCKPIT"), GameControls.CockpitView);
         }
 
         InputKind hintKind;
@@ -667,7 +755,11 @@ namespace GoF2Remake.UI
         {
             var h = new VisualElement { pickingMode = PickingMode.Ignore };
             h.AddToClassList("hint");
-            foreach (var g in glyphs) h.Add(g);
+            // Modified: the glyphs in a row of their own (hint-keys), the label under them (GoF2InputGlyphs.uss).
+            var keys = new VisualElement { pickingMode = PickingMode.Ignore };
+            keys.AddToClassList("hint-keys");
+            foreach (var g in glyphs) keys.Add(g);
+            h.Add(keys);
             var l = new Label(label) { pickingMode = PickingMode.Ignore };
             l.AddToClassList("hint-label");
             l.AddToClassList("gof-semibold");
@@ -688,7 +780,9 @@ namespace GoF2Remake.UI
         void UpdateMouseSteering()
         {
             if (ship == null || level == null) return;
-            bool cursor = Settings.MouseSteering && !Application.isMobilePlatform && InputMode.Current == InputKind.KeyboardMouse && !Vr.VrMode.Enabled
+            // Remake: Android too, with a mouse connected (the lock is Android's pointer capture); without one a keyboard
+            // steers alone at its own sensitivity.
+            bool cursor = Settings.MouseSteering && Mouse.current != null && InputMode.Current == InputKind.KeyboardMouse && !Vr.VrMode.Enabled
                       && !pauseMenu.IsOpen && !(nav != null && nav.MenuOpen) && !StarMap.IsOpen && !storyDialogue.IsOpen
                       && !level.Cutscene && level.LaunchCameraOver && Time.timeScale > 0f && (health == null || !health.Dead)
                       // the Liberator too: the mouse steers it (it was off); docked at an object only the turret view (it aims the
@@ -776,6 +870,8 @@ namespace GoF2Remake.UI
         void Update()
         {
             if (root == null) return;
+            // The layout first: the Mod Builder's space screen below shares this panel and its scale.
+            if (lastScreen != ScreenSize() || lastSafeArea != Screen.safeArea || lastLayout != UiLayout.Revision) UpdateLayout();
             // Remake: the Mod Builder's work in space (Stations, Weapon fx): its own screen instead of the HUD.
             if (Modding.ModBuilder.InSpace)
             {
@@ -798,13 +894,19 @@ namespace GoF2Remake.UI
                 voicePausedByMenu = menuPause;
                 if (menuPause) voiceSource.Pause(); else voiceSource.UnPause();
             }
+            // The root's input classes follow InputMode.Changed; should they ever disagree with the input in use (a change
+            // missed while the HUD was being built), the touch layer, the readout's place and the hints went by the wrong
+            // input (a phone showed the cargo readout over the pause button): put them right.
+            if (root.ClassListContains("input-touch") != (InputMode.Current == InputKind.Touch)) ApplyInputMode();
             UpdateTouch();   // every frame: the controls hide and let go under menus, dialogues and cutscenes
             UpdateMouseSteering();
-            if (lastScreen != ScreenSize() || lastSafeArea != Screen.safeArea) UpdateLayout();
-            lensFlare?.Update(level != null ? level.Backdrop : null, StarMap.IsOpen || !Settings.LensFlare);   // StarSystem::render2D, under the HUD
+            // StarSystem::render2D, under the HUD; Action Freeze can switch it for the photo (PhotoSettings.Flare).
+            lensFlare?.Update(level != null ? level.Backdrop : null,
+                              StarMap.IsOpen || !PhotoSettings.FlareShown(pauseMenu != null && pauseMenu.Photo != null && pauseMenu.Photo.Active));
 
             bool mapOpen = StarMap.IsOpen;
             root.EnableInClassList("hud-map", mapOpen);
+            root.EnableInClassList("hud-paused", pauseMenu != null && pauseMenu.IsOpen);   // the menu has its own prompts
             root.EnableInClassList("hud-shop", carrierShop != null && carrierShop.IsOpen);   // the carrier's resupply window
             int hudMode = Settings.HudMode;   // Options > Gameplay "Flight HUD" (immersion): FlightHud.uss hides the markings
             root.EnableInClassList("hud-minimal", hudMode == Settings.HudMinimal);
@@ -812,6 +914,7 @@ namespace GoF2Remake.UI
             // The FPS counter at the top centre (its default place, FpsCounter): the lock plate and the HUD messages move
             // under it (#137: a mission's reward line was drawn over the counter).
             root.EnableInClassList("hud-fps", Settings.ShowFps && Settings.FpsPosition == Settings.FpsTop);
+            ApplyHudLook();
             if (mapOpen) return;   // the map has its own input
 
             // MGame::OnUpdate: DialogueWindow::update runs only while the player lives; a conversation open at the death waits.
@@ -837,6 +940,9 @@ namespace GoF2Remake.UI
 
             if (volatileCargo == null && level != null && level.Player != null) volatileCargo = level.Player.GetComponent<VolatileCargo>();
             readout?.Update(level, true, volatileCargo != null ? volatileCargo.Force : 0f);
+            bool challenge = level != null && level.Challenge != null;
+            challengeView?.Update(challenge);
+            root.EnableInClassList("hud-challenge", challenge);   // the top plates move under the score
             if (carrierShop != null && carrierShop.IsOpen)
             {
                 // The docking ended another way (the carrier destroyed, a level script): the window goes without an undock.
@@ -892,7 +998,7 @@ namespace GoF2Remake.UI
             else if (menuKeys && GameControls.Wingmen.WasPressedThisFrame()) OpenMenuEntry(Navigation.Kind.Wingmen);
             else if (menuKeys && GameControls.KhadorDrive.WasPressedThisFrame()) OpenMenuEntry(Navigation.Kind.KhadorDrive);
             bool freeLookNow = level != null && level.FreeLook != null && level.FreeLook.FreeLookActive;
-            if (!Application.isMobilePlatform && GameControls.MouseSteering.WasPressedThisFrame()
+            if (GameControls.MouseSteering.WasPressedThisFrame()
                 && !(freeLookNow && GameControls.MouseSteering.activeControl?.device is Mouse))
             {
                 Settings.MouseSteering = !Settings.MouseSteering;
@@ -1010,7 +1116,8 @@ namespace GoF2Remake.UI
             // Touch: no prompt, the fire button is the action button (its arrow shows when fire acts).
             dockPrompt.EnableInClassList("dock-prompt--hidden", prompt == null || InputMode.Current == InputKind.Touch || cursorMode);   // touch / cursor: the arrow on fire
             if (prompt != null) dockLabel.text = prompt;
-            if (prompt != null && GameControls.Action.WasPressedThisFrame())
+            // A session: Enter opens the chat (ChatView), not the prompt (F, the controller's X still act).
+            if (prompt != null && GameControls.Action.WasPressedThisFrame() && !(GoF2Remake.Multiplayer.NetGame.Active && ActionByEnter()))
             {
                 Interact();
                 if (level == null || !level.isActiveAndEnabled) return;
@@ -1088,7 +1195,7 @@ namespace GoF2Remake.UI
             }
             lockRingElement.style.left = crosshair.style.left;
             lockRingElement.style.top = crosshair.style.top;
-            navView.Update(nav, Camera.main, InputMode.Current == InputKind.Touch || cursorMode, phase,
+            navView.Update(nav, Camera.main, touchNavShown, phase,
                            level.Layout.alienOrbit ? Standing.Void : level.Layout.raceId, level.SystemJumpgateStation, level.StationInfo != null ? level.StationInfo.techLevel : 0);
             bool cinematic = (nav != null && nav.Jumping) || (jump != null && jump.Cinematic);
             // Radar::drawCurrentLock's order: an asteroid, then a ship lock, then a landmark (the ship's plate goes over it).
@@ -1229,6 +1336,7 @@ namespace GoF2Remake.UI
             menuIndex = 0;
             lastMenuMove = 0;
             menuOpenedFrame = Time.frameCount;
+            menuPointer = false;   // Modified: opened with a key / button: its first entry is highlighted
             autopilotMenu.EnableInClassList("autopilot-menu--actions", actions);   // Modified: the actions menu (E) on the right
             autopilotMenu.AddToClassList("autopilot-menu--shown");
             HighlightMenu();
@@ -1262,7 +1370,7 @@ namespace GoF2Remake.UI
             touch?.ReleaseAll();
             weapons?.SetPrimaryHeld(false);
             carrierShop ??= new CarrierShopWindow(safeArea ?? root, level.Database, health, PlayButton, PlayUi,
-                                                  text => miningView?.ShowMessage(text), OnCarrierShopClosed);
+                                                  text => miningView?.ShowMessage(text), OnCarrierShopClosed) { HoverSound = PlayHover };
             carrierShop.Open(docking != null ? docking.Target : null);
             BuildHints(InputMode.Current);
             // Inside the carrier: the station hangar's ambience under the window (it plays through the paused game).
@@ -1305,8 +1413,26 @@ namespace GoF2Remake.UI
         void HighlightMenu()
         {
             bool keys = InputMode.Current != InputKind.Touch;
-            for (int i = 0; i < menuButtons.Count; i++) menuButtons[i].button.EnableInClassList("autopilot-menu-item--selected", keys && i == menuIndex);
+            // Modified: with the mouse only the entry under it (the keys go on from there).
+            int under = menuPointer && menuHover != null ? menuButtons.FindIndex(m => m.button == menuHover) : -1;
+            if (under >= 0) menuIndex = under;
+            int marked = !keys ? -1 : menuPointer ? under : menuIndex;
+            for (int i = 0; i < menuButtons.Count; i++) menuButtons[i].button.EnableInClassList("autopilot-menu-item--selected", i == marked);
         }
+
+        /// <summary>Modified: the mouse moved last in the autopilot / actions menu (HighlightMenu); the entry under it.</summary>
+        bool menuPointer;
+        VisualElement menuHover;
+
+        VisualElement MenuButtonAt(VisualElement t)
+        {
+            for (var v = t; v != null && v != autopilotMenu; v = v.parent)
+                if (menuButtons.Exists(m => m.button == v)) return v;
+            return null;
+        }
+
+        /// <summary>Modified: the menus' hover sound (the station's: the button push, softer).</summary>
+        void PlayHover() => PlayUi(CombatAudio.Load()?.buttonPush, 0.45f);
 
         /// <summary>While the menu is open (game paused): keys / D-pad pick, 1-8 choose an entry (the PC version's menu
         /// select), Esc / Q / E / B / View close.</summary>
@@ -1333,10 +1459,17 @@ namespace GoF2Remake.UI
                 if (dir != 0 && dir != lastMenuMove) move = dir;
                 lastMenuMove = dir;
             }
+            if (move != 0 && menuPointer)
+            {
+                // Modified: the keys take over from the mouse; over nothing the first press only shows the highlight.
+                menuPointer = false;
+                if (menuHover == null) { HighlightMenu(); PlayHover(); move = 0; }
+            }
             if (move != 0 && menuButtons.Count > 0)
             {
                 menuIndex = (menuIndex + move + menuButtons.Count) % menuButtons.Count;
                 HighlightMenu();
+                PlayHover();   // Modified: the arrows' sound
             }
             bool confirm = (kb != null && (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame))
                            || (pad != null && (pad.buttonSouth.wasPressedThisFrame || pad.buttonWest.wasPressedThisFrame));
@@ -1344,10 +1477,12 @@ namespace GoF2Remake.UI
             {
                 var digits = new[] { kb.digit1Key, kb.digit2Key, kb.digit3Key, kb.digit4Key, kb.digit5Key, kb.digit6Key, kb.digit7Key, kb.digit8Key };
                 for (int d = 0; d < digits.Length; d++)
-                    if (digits[d].wasPressedThisFrame && d < menuButtons.Count) { menuIndex = d; HighlightMenu(); confirm = true; break; }
+                    if (digits[d].wasPressedThisFrame && d < menuButtons.Count) { menuPointer = false; menuIndex = d; HighlightMenu(); confirm = true; break; }
             }
+            if (confirm && menuPointer && menuHover == null) { menuPointer = false; HighlightMenu(); confirm = false; }   // Modified: nothing marked yet
             if (confirm && menuIndex < menuButtons.Count)
             {
+                PlayButton(false);   // Modified: the entry's sound (a click has its own)
                 if (menuIndex < menuActions.Count && menuActions[menuIndex] != null) menuActions[menuIndex]();
                 else ChooseMenuTarget(menuButtons[menuIndex].target);
             }
@@ -1450,6 +1585,7 @@ namespace GoF2Remake.UI
         /// <summary>Hud::draw's top readout: the time limit (Junk removal, a campaign level's LevelScript+0), else the cargo
         /// hold, the volatile bar and the mission counters (HudReadout).</summary>
         HudReadout readout;
+        ChallengeView challengeView;
         VolatileCargo volatileCargo;
         void OnCombatMessage(string text, int colour) => miningView?.ShowMessage(text, colour);
 
@@ -1465,7 +1601,12 @@ namespace GoF2Remake.UI
             {
                 SaveGame.DeleteRun(Session.RunId);
                 hardcoreDead = true;
-                gameOverText.text = Localization.Extra("hardcoreDead", "Hardcore: your pilot is lost and this game's saves are deleted. Tap to return to the main menu.");
+                gameOverText.text = Localization.Extra("hardcoreDead", "Hardcore: your pilot is lost and the saves are deleted. Tap for the main menu.");
+                return;
+            }
+            if (level != null && level.Challenge != null)   // the Supernova Challenge: the round's end asks "Play again?" (ChallengeOrbit)
+            {
+                gameOverText.text = "";
                 return;
             }
             if (Modding.ModBuilder.TestFlying || Modding.ModBuilder.PlayTesting)   // a Mod Builder test flight / play test: back to the builder
@@ -1502,6 +1643,7 @@ namespace GoF2Remake.UI
             if (gameOverMs < 7000f) return;
             gameOverMs = -1f;
             if (hardcoreDead) { BackToMenu(); return; }   // hardcore: nothing to load
+            if (level != null && level.Challenge != null) { gameOverMs = 7000f; return; }   // the challenge's question answers it
             if (Modding.ModBuilder.TestFlying) { Modding.ModBuilder.EndTestFlight(false); return; }
             if (Modding.ModBuilder.PlayTesting) { ModBuilderPlay.End(); return; }
             // Multiplayer: back at the station last docked at (like single player's auto-save), repaired (docking repairs),
@@ -1551,6 +1693,11 @@ namespace GoF2Remake.UI
         /// whenever the lock completed meanwhile, which looked like a launch.</summary>
         bool DockBeforeLock => level != null && level.CanDock && nav != null && !nav.Autopilot && nav.Locked != null
                                && (nav.Locked.kind == Navigation.Kind.Planet || nav.Locked.kind == Navigation.Kind.Station);
+
+        /// <summary>The action's press came from Enter (its second default key).</summary>
+        static bool ActionByEnter() =>
+            GameControls.Action.activeControl is UnityEngine.InputSystem.Controls.KeyControl k
+            && (k.keyCode == UnityEngine.InputSystem.Key.Enter || k.keyCode == UnityEngine.InputSystem.Key.NumpadEnter);
 
         void Interact()
         {
@@ -1602,24 +1749,50 @@ namespace GoF2Remake.UI
         {
             lastScreen = ScreenSize();
             lastSafeArea = Screen.safeArea;
+            lastLayout = UiLayout.Revision;
             bool offscreen = runtimePanel != null && runtimePanel.targetTexture != null;
             float w = Mathf.Max(1, lastScreen.x), h = Mathf.Max(1, lastScreen.y);
-            float inches = Screen.dpi > 0f ? Mathf.Sqrt(w * w + h * h) / Screen.dpi : 20f;
-            // Remake: UnityEngine.Device, the Device Simulator's phone (UnityEngine.Application stays the Editor there, so
-            // the simulator showed the desktop layout); the same values in a build.
-            bool phone = UnityEngine.Device.Application.isMobilePlatform && inches < 7.5f;
-            if (runtimePanel != null)
-            {
-                runtimePanel.referenceResolution = phone ? new Vector2Int(1600, 900) : new Vector2Int(1920, 1080);
-                runtimePanel.screenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
-                runtimePanel.match = 1f;
-            }
-            root.EnableInClassList("layout-phone", phone);
-            root.EnableInClassList("ui-large", UiScale.Large(h, phone ? 900f : 1080f));   // a small high-density screen: bigger lists
-            RadarScale = phone ? 900f / 1080f : 1f;
+            var layout = UiLayout.Configure(runtimePanel, root, w, h);   // docs/UI-DESIGN.md "Scaling"
+            // The radar ellipse (657 x 491 units) is drawn for a 1080-unit-high panel: shrunk with a shorter one (a phone's,
+            // a larger interface size) so its top and bottom dots stay on screen (2026-10-16, players' report at 900).
+            RadarScale = Mathf.Min(1f, layout.panel.y / UiLayout.RefHeight);
             var radar = root.Q("radarEllipse");   // a 0 x 0 box at the centre: scaled around it
             if (radar != null) radar.style.scale = new Scale(new Vector3(RadarScale, RadarScale, 1f));
             ApplySafeArea(w, h, offscreen);
+            hudLook = -1;   // again on the next frame (a rebuilt layout)
+        }
+
+        int hudLook = -1;
+
+        /// <summary>The HUD's panels scaled from the corner or edge they hang on (Options > Gameplay "HUD size"; the ship
+        /// markers, the radar ellipse and the touch controls keep their sizes: they sit on what they mark, or have their
+        /// own options).</summary>
+        static readonly (string cls, float x, float y)[] HudScaled =
+        {
+            ("status-panel", 0f, 0f), ("speed-panel", 0f, 0f), ("orbit-info", 0f, 0f), ("hud-readout", 100f, 0f),
+            ("lock-plate", 50f, 0f), ("hud-messages", 50f, 0f), ("jump-charge", 50f, 0f), ("missile-warning", 50f, 0f),
+            ("hints", 0f, 100f), ("crosshair", 50f, 50f), ("lock-ring", 50f, 50f),
+        };
+
+        /// <summary>The markings Options > Gameplay "HUD opacity" fades (not the messages, the radio, the menus, the action
+        /// prompt or the warnings; the radar ellipse through its quarters, which keep its own 0.6, and not the crosshair,
+        /// whose rules fade it themselves).</summary>
+        static readonly string[] HudFaded = { "status-panel", "speed-panel", "hud-readout", "lock-plate", "hints", "nav-markers", "radar-quarter", "lock-ring" };
+
+        /// <summary>Options > Gameplay "HUD size" / "HUD opacity" (docs/UI-DESIGN.md "HUD"), applied when they change.</summary>
+        void ApplyHudLook()
+        {
+            int key = Settings.HudScalePercent * 1000 + Settings.HudOpacityPercent;
+            if (key == hudLook || root == null) return;
+            hudLook = key;
+            float s = Settings.HudScalePercent / 100f, a = Settings.HudOpacityPercent / 100f;
+            foreach (var (cls, x, y) in HudScaled)
+                root.Query(className: cls).ForEach(e =>
+                {
+                    e.style.transformOrigin = new TransformOrigin(Length.Percent(x), Length.Percent(y));
+                    e.style.scale = new Scale(new Vector3(s, s, 1f));
+                });
+            foreach (var cls in HudFaded) root.Query(className: cls).ForEach(e => e.style.opacity = a);
         }
 
         /// <summary>Device safe-area insets (the notch / Dynamic Island, the home indicator, cutouts), see SafeArea.</summary>
@@ -1666,13 +1839,25 @@ namespace GoF2Remake.UI
 
         AudioSource uiSource;
 
+        /// <summary>Modified: a click sounds as in the main menu: only the release, on the click (a pointer press's push is left
+        /// out, but in the carrier's shop window), once per frame.</summary>
+        int pressFrame = -1, releaseFrame = -1;
+
         void PlayButton(bool push)
         {
+            if (push && pressFrame == Time.frameCount) return;
+            if (!push)
+            {
+                if (releaseFrame == Time.frameCount) return;
+                releaseFrame = Time.frameCount;
+            }
             var audio = CombatAudio.Load();
             PlayUi(audio == null ? null : push ? audio.buttonPush : audio.buttonRelease);
         }
 
-        void PlayUi(AudioClip clip)
+        void PlayUi(AudioClip clip) => PlayUi(clip, 1f);
+
+        void PlayUi(AudioClip clip, float volume)
         {
             if (clip == null) return;
             if (uiSource == null)
@@ -1682,21 +1867,17 @@ namespace GoF2Remake.UI
                 uiSource.spatialBlend = 0f;
                 uiSource.ignoreListenerPause = true;   // the pause menu pauses the listener
             }
-            uiSource.PlayOneShot(GoF2Remake.Modding.ModSounds.Get(clip), Settings.SfxVolume);
+            uiSource.PlayOneShot(GoF2Remake.Modding.ModSounds.Get(clip), Settings.SfxVolume * volume);
         }
 
-        /// <summary>Every button inside this container clicks: push on pointer down, release on the click.</summary>
+        /// <summary>Every button and toggle inside this container clicks. Modified: as in the main menu, only the release on the
+        /// click (the push on the press is gone, also a button's own: PlayButton); not in the carrier's shop window (its own).</summary>
         void ButtonSounds(VisualElement container)
         {
             if (container == null) return;
-            container.RegisterCallback<PointerDownEvent>(e => { if (InButton(e.target)) PlayButton(true); }, TrickleDown.TrickleDown);
-            container.RegisterCallback<ClickEvent>(e => { if (InButton(e.target)) PlayButton(false); });
+            container.RegisterCallback<PointerDownEvent>(e => { if (UiHover.SilentPress(e.target)) pressFrame = Time.frameCount; }, TrickleDown.TrickleDown);
+            container.RegisterCallback<ClickEvent>(e => { if (UiHover.ClickSounds(e.target)) PlayButton(false); });
         }
 
-        static bool InButton(IEventHandler target)
-        {
-            for (var v = target as VisualElement; v != null; v = v.parent) if (v is Button) return true;
-            return false;
-        }
     }
 }

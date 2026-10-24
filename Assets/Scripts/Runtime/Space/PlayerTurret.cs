@@ -261,6 +261,7 @@ namespace GoF2Remake.Flight
             gun.Ignores = t => t.playerProof;   // multiplayer: through squadmates
             core.Rig?.Tint(WeaponTint.For(item, WeaponTint.PlayerColor()));   // an energy turret in the build's weapon colour
             gun.Hit += OnHit;
+            if (gun.echo != null) gun.AreaHit += (t, dmg, emp, c) => { if (t != null && dmg > 0) t.Damage(dmg, false, (t.transform.position - c).normalized, gun.shieldFactor); };   // an echo's blast (GunEcho)
             if (fx.shot != null)
             {
                 loop = gameObject.AddComponent<AudioSource>();
@@ -446,7 +447,7 @@ namespace GoF2Remake.Flight
             float dtMs = Time.deltaTime * 1000f;
             if (gun.owner == null) gun.owner = GetComponent<Target>();   // the player's Target comes after the turret
             bool halted = Time.timeScale <= 0f || GunsBlocked;
-            if (!halted)
+            if (!halted && !Navigation.PressesBlocked)   // not a menu's D-pad (multiplayer doesn't pause)
             {
                 // The view key (V / D-pad up) is the camera button now: FreeLookCamera cycles standard / turret / free look.
                 // With several turrets the first manual / auto one answers the keys for all of them (Toggle / SetAuto).

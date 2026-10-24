@@ -1,16 +1,17 @@
-/* Main menu. Landscape only. Layout in reference pixels: the panel is always 1080 units tall (900 on phones),
-   so its width varies with the aspect ratio. MainMenu adds layout-narrow (4:3, 16:10) and layout-phone to
-   the root; on ultrawide screens the UI stays inside a centred 21:9 safe area. */
+/* Main menu. Landscape only. Layout in panel units of the 1920 x 1080 design, scaled by UiLayout (docs/UI-DESIGN.md),
+   so its width varies with the aspect ratio. UiLayout adds layout-narrow (4:3, 16:10), layout-phone and the others to
+   the root; on ultrawide screens the UI stays inside the interface width (a centred 21:9 band by default). */
 
 .menu-root {
     flex-grow: 1;
     align-items: center;
 }
 
+/* The ultrawide band (Options > Graphics "Interface width") comes from the safe area's insets (UiLayout.OptionInsets),
+   which work at any interface size; a fixed max-width here didn't. */
 .safe-area {
     flex-grow: 1;
     width: 100%;
-    max-width: 2560px;
 }
 
 /* ---- background shading over the 3D scene ------------------------------------------ */
@@ -80,7 +81,7 @@
     right: 0;
     top: 62%;
     -unity-text-align: middle-center;
-    font-size: 24px;
+    font-size: var(--text-subhead);
     letter-spacing: 6px;
     color: var(--gof-text);
     opacity: 0;
@@ -132,7 +133,7 @@
 }
 
 .main-column--full .main-buttons {
-    margin-top: 16px;
+    margin-top: var(--space-l);
 }
 
 /* the menu root prefix keeps the pressed state above the (can-hover) hover state */
@@ -181,6 +182,45 @@
     opacity: 0.35;
 }
 
+/* A compact screen (UiLayout layout-compact: a 1:1 / 4:3 screen, a 16:9 phone, a TV, a large interface size): an open
+   panel takes the column's place, so its tabs and rows keep their width instead of wrapping beside a dimmed list. */
+.layout-compact.menu-root--panel .main-column,
+.layout-compact.menu-root--panel .logo {
+    display: none;
+}
+
+/* With a panel open the footer is the prompt row's: the version text gives way, and the panels end above the footer. */
+.menu-root--panel .footer-version {
+    display: none;
+}
+
+.menu-root--panel .panel-host {
+    padding-bottom: 64px;
+}
+
+/* Larger text (Options > Accessibility): the prompt row may take two lines, the menu's entries need their whole width. */
+.ui-text-150.menu-root--panel .panel-host,
+.ui-text-175.menu-root--panel .panel-host,
+.ui-text-200.menu-root--panel .panel-host {
+    padding-bottom: 150px;
+}
+
+.ui-text-130 .main-column,
+.ui-text-150 .main-column,
+.ui-text-175 .main-column,
+.ui-text-200 .main-column {
+    width: auto;
+    min-width: 30%;
+    flex-shrink: 0;
+}
+
+.footer > .prompt-bar {
+    flex-wrap: wrap;   /* a second line only when the line doesn't fit (a large text size) */
+    flex-shrink: 0;    /* its own width first: shrinking, it wrapped on a TV with room to spare */
+    max-width: 100%;
+    margin-left: auto;
+}
+
 /* ---- panels ------------------------------------------------------------------------- */
 
 /* The host takes the width the menu column leaves (its own width is set): sized by its content, a wide panel (the Debug
@@ -193,7 +233,7 @@
     align-items: flex-start;
     padding-left: 2%;
     padding-right: 6%;
-    padding-top: 6%;
+    padding-top: 0;   /* Modified: the panels centred top to bottom (6 % from the top pushed them low) */
 }
 
 .panel {
@@ -216,7 +256,7 @@
 
 /* Options: wider than the other panels, so its six tabs fit on one line. */
 #optionsPanel {
-    max-width: 1000px;
+    max-width: 1240px;
 }
 
 .panel--wide {
@@ -279,24 +319,27 @@
     flex-shrink: 0;
 }
 
+/* Modified: wrapped to a second line when long (the Portuguese "Arma secundária sem tempo de recarga" ran over its checkbox
+   on one line). */
 .debug-column--cheats .unity-base-field__label {
-    white-space: nowrap;
+    white-space: normal;
+    flex-shrink: 1;
 }
 
 .debug-heading {
-    margin-bottom: 8px;
-    font-size: 20px;
+    margin-bottom: var(--space-s);
+    font-size: var(--text-body);
     letter-spacing: 4px;
     color: var(--gof-cyan);
 }
 
 .debug-filter {
-    margin: 0 0 10px 0;
+    margin: 0 0 8px 0;
 }
 
 .debug-filter .unity-base-text-field__input {
-    padding: 10px 14px;
-    font-size: 20px;
+    padding: 8px 16px;
+    font-size: var(--text-body);
     color: var(--gof-text);
     background-color: rgba(0, 0, 0, 0.35);
     border-width: 1px;
@@ -316,7 +359,7 @@
 
 .debug-mission-section {
     margin: 12px 0 4px 0;
-    font-size: 17px;
+    font-size: var(--text-small);
     letter-spacing: 3px;
     color: var(--gof-amber);
 }
@@ -325,7 +368,7 @@
     flex-direction: column;
     align-items: stretch;
     margin: 0;
-    padding: 9px 14px;
+    padding: 8px 16px;
     background-color: rgba(0, 0, 0, 0);
     border-width: 0;
     border-left-width: 3px;
@@ -347,13 +390,13 @@
 
 .debug-mission-index {
     min-width: 54px;
-    font-size: 20px;
+    font-size: var(--text-body);
     color: var(--gof-amber);
 }
 
 .debug-mission-title {
     flex-shrink: 1;
-    font-size: 20px;
+    font-size: var(--text-body);
     color: var(--gof-text);
     white-space: nowrap;
     overflow: hidden;
@@ -362,16 +405,16 @@
 
 .debug-mission-station {
     margin-left: auto;
-    padding-left: 12px;
+    padding-left: var(--space-m);
     flex-shrink: 0;
     white-space: nowrap;
-    font-size: 16px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
 }
 
 .debug-mission-summary {
     margin-left: 54px;
-    font-size: 16px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -397,7 +440,7 @@
 }
 
 .mods-count {
-    font-size: 15px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
 }
 
@@ -424,8 +467,8 @@
     left: 0;
     right: 0;
     top: 0;
-    padding: 24px;
-    font-size: 17px;
+    padding: var(--space-xl);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
 }
@@ -434,7 +477,7 @@
     flex-direction: row;
     align-items: center;
     margin: 0;
-    padding: 8px 12px 8px 9px;
+    padding: 8px 12px 8px 8px;
     background-color: rgba(0, 0, 0, 0);
     border-width: 0;
     border-left-width: 3px;
@@ -457,7 +500,7 @@
     width: 112px;
     height: 63px;
     flex-shrink: 0;
-    margin-right: 14px;
+    margin-right: var(--space-l);
     background-color: rgba(0, 0, 0, 0.45);
     border-width: 1px;
     border-color: var(--gof-line);
@@ -475,7 +518,7 @@
 }
 
 .mods-row-name {
-    font-size: 19px;
+    font-size: var(--text-body);
     color: var(--gof-text);
     white-space: nowrap;
     overflow: hidden;
@@ -488,7 +531,7 @@
 
 .mods-row-sub {
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: nowrap;
     overflow: hidden;
@@ -497,9 +540,9 @@
 
 .mods-badge {
     flex-shrink: 0;
-    margin-left: 10px;
-    padding: 3px 9px;
-    font-size: 12px;
+    margin-left: var(--space-s);
+    padding: 3px 8px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     color: var(--gof-text-dim);
     border-width: 1px;
@@ -541,8 +584,8 @@
 
 .mods-name {
     flex-shrink: 0;
-    margin-top: 16px;
-    font-size: 30px;
+    margin-top: var(--space-l);
+    font-size: var(--text-title);
     color: var(--gof-text);
     white-space: normal;
 }
@@ -550,7 +593,7 @@
 .mods-meta {
     flex-shrink: 0;
     margin-top: 2px;
-    font-size: 14px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
     white-space: normal;
 }
@@ -559,18 +602,18 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-height: 40px;
-    margin-top: 12px;
+    margin-top: var(--space-m);
 }
 
 .mods-desc {
-    font-size: 17px;
+    font-size: var(--text-small);
     color: var(--gof-text);
     white-space: normal;
 }
 
 .mods-problems {
-    margin-top: 10px;
-    font-size: 14px;
+    margin-top: var(--space-s);
+    font-size: var(--text-caption);
     color: rgb(255, 170, 120);
     white-space: normal;
 }
@@ -578,28 +621,28 @@
 .mods-actions {
     flex-direction: row;
     flex-shrink: 0;
-    margin-top: 14px;
+    margin-top: var(--space-l);
 }
 
 .mods-action {
-    margin: 0 10px 0 0;
-    padding: 10px 18px;
-    font-size: 17px;
+    margin: 0 8px 0 0;
+    padding: 8px 16px;
+    font-size: var(--text-small);
     letter-spacing: 3px;
     -unity-text-align: middle-center;
     color: var(--gof-text);
-    background-color: var(--gof-cyan-faint);
-    border-width: 1px;
-    border-color: var(--gof-cyan-soft);
-    border-radius: 2px;
+    background-color: var(--button-fill);
+    border-width: var(--button-border-compact);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
     transition-duration: 0.18s;
 }
 
 .can-hover .mods-action:hover,
 .mods-action:focus {
-    color: #ffffff;
-    border-color: var(--gof-amber);
-    background-color: var(--gof-cyan-soft);
+    color: #FFFFFF;
+    border-color: var(--button-focus-line);
+    background-color: var(--button-focus-fill);
 }
 
 .mods-action:disabled {
@@ -612,13 +655,13 @@
 }
 
 .save-transfer-row > .mods-action {
-    margin: 0 5px;
+    margin: 0 4px;
 }
 
 .save-transfer-note {
     flex-shrink: 0;
-    margin-top: 8px;
-    font-size: 14px;
+    margin-top: var(--space-s);
+    font-size: var(--text-small);
     letter-spacing: 1px;
     white-space: normal;
     color: var(--gof-text-dim);
@@ -673,7 +716,7 @@
     height: 26px;
     margin-top: -13px;
     border-radius: 13px;
-    font-size: 15px;
+    font-size: var(--text-caption);
     letter-spacing: 0;
     color: #0B1016;
     background-color: #3F8FE8;
@@ -694,22 +737,22 @@
     flex-direction: row;
     align-items: center;
     flex-shrink: 0;
-    margin-top: 14px;
+    margin-top: var(--space-l);
 }
 
 .mods-note {
     flex-grow: 1;
     flex-shrink: 1;
-    margin-right: 14px;
-    font-size: 14px;
+    margin-right: var(--space-l);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
 }
 
 .mods-footer-button {
     flex-shrink: 0;
-    font-size: 15px;
-    padding: 8px 14px;
+    font-size: var(--text-caption);
+    padding: 8px 16px;
     white-space: nowrap;
 }
 
@@ -719,12 +762,12 @@
     flex-direction: row;
     align-items: center;
     flex-shrink: 0;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-s);
 }
 
 .mb-new-name {
     flex-grow: 1;
-    margin: 0 10px 0 0;
+    margin: 0 8px 0 0;
 }
 
 .mb-create {
@@ -738,7 +781,7 @@
 
 .mb-field .unity-base-text-field__input {
     padding: 8px 12px;
-    font-size: 18px;
+    font-size: var(--text-small);
     color: var(--gof-text);
     background-color: rgba(0, 0, 0, 0.35);
     border-width: 1px;
@@ -772,11 +815,11 @@
 }
 
 .mb-fields {
-    margin-top: 12px;
+    margin-top: var(--space-m);
 }
 
 .mb-field-box {
-    margin-bottom: 10px;
+    margin-bottom: var(--space-s);
     flex-grow: 1;
 }
 
@@ -786,29 +829,29 @@
 
 .mb-field-pair > .mb-field-box--first,   /* USS has no :first-child */
 .mb-field-box--wide {
-    margin-right: 14px;
+    margin-right: var(--space-l);
     flex-grow: 3;
 }
 
 .mb-field-label {
-    font-size: 13px;
+    font-size: var(--text-caption);
     letter-spacing: 3px;
     color: var(--gof-text-dim);
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
 }
 
 /* Under the project's name, like GitHub's "will be created as": the mod id it gives. */
 .mb-id-hint {
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: var(--space-xs);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     opacity: 0.8;
 }
 
 .mb-actions > .mods-action {
     white-space: nowrap;
-    padding: 10px 14px;
-    font-size: 15px;
+    padding: 8px 16px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
 }
 
@@ -821,8 +864,8 @@
 }
 
 .mb-section {
-    margin: 10px 0 8px 0;
-    font-size: 15px;
+    margin: 8px 0 8px 0;
+    font-size: var(--text-caption);
     letter-spacing: 4px;
     color: var(--gof-cyan);
 }
@@ -835,7 +878,7 @@
 .mb-kind {
     width: 24%;
     margin: 0 1% 8px 0;
-    padding: 7px 10px;
+    padding: 8px 8px;
     align-items: stretch;
     background-color: var(--gof-cyan-faint);
     border-width: 1px;
@@ -861,7 +904,7 @@
 }
 
 .mb-kind-title {
-    font-size: 14px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     white-space: nowrap;
     overflow: hidden;
@@ -872,7 +915,7 @@
 
 .mb-kind-state {
     margin-top: 2px;
-    font-size: 12px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     color: var(--gof-amber);
     -unity-text-align: middle-left;
@@ -883,8 +926,8 @@
 }
 
 .mb-kind-desc {
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: var(--space-xs);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
     -unity-text-align: upper-left;
@@ -898,9 +941,9 @@
 }
 
 .mp-badge {
-    margin-left: 18px;
-    padding: 3px 10px;
-    font-size: 13px;
+    margin-left: var(--space-l);
+    padding: 3px 8px;
+    font-size: var(--text-caption);
     letter-spacing: 3px;
     color: var(--gof-amber);
     border-width: 1px;
@@ -910,22 +953,22 @@
 }
 
 .mp-intro {
-    margin-bottom: 24px;
-    font-size: 18px;
+    margin-bottom: var(--space-xl);
+    font-size: var(--text-small);
     color: var(--gof-text);
     white-space: normal;
 }
 
 .mp-label {
-    margin-bottom: 6px;
-    font-size: 14px;
+    margin-bottom: var(--space-s);
+    font-size: var(--text-caption);
     letter-spacing: 3px;
     color: var(--gof-text-dim);
 }
 
 .mp-name {
     max-width: 420px;
-    margin-bottom: 26px;
+    margin-bottom: var(--space-xl);
 }
 
 .mp-cards {
@@ -935,8 +978,8 @@
 .mp-card {
     flex-grow: 1;
     flex-basis: 0;
-    margin-right: 18px;
-    padding: 20px 22px;
+    margin-right: var(--space-l);
+    padding: 20px 24px;
     background-color: rgba(62, 200, 255, 0.05);
     border-width: 1px;
     border-color: var(--gof-line);
@@ -948,14 +991,14 @@
 }
 
 .mp-card-title {
-    font-size: 21px;
+    font-size: var(--text-label);
     letter-spacing: 4px;
     color: var(--gof-cyan);
 }
 
 .mp-card-text {
     margin: 8px 0 16px 0;
-    font-size: 15px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
 }
@@ -965,11 +1008,11 @@
     flex-grow: 1;
     justify-content: center;
     min-height: 58px;
-    margin-bottom: 16px;
+    margin-bottom: var(--space-l);
 }
 
 .mp-address-list {
-    margin-bottom: 10px;
+    margin-bottom: var(--space-s);
 }
 
 .mp-card-fill--empty {
@@ -983,7 +1026,7 @@
     align-items: center;
     -unity-text-align: middle-left;
     margin: 0 0 4px 0;
-    padding: 3px 10px;
+    padding: 3px 8px;
     background-color: rgba(0, 0, 0, 0.25);
     border-width: 1px;
     border-color: rgba(216, 236, 247, 0.12);
@@ -999,19 +1042,19 @@
 
 .mp-address-name {
     width: 96px;
-    font-size: 14px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
 }
 
 .mp-address-value {
     flex-grow: 1;
-    font-size: 20px;
+    font-size: var(--text-body);
     letter-spacing: 1px;
     color: var(--gof-text);
 }
 
 .mp-address-copy {
-    font-size: 13px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
 }
 
@@ -1028,13 +1071,13 @@
 }
 
 /* The password takes what is left and shrinks (min-width 0): its placeholder's width pushed the player limit out of the
-   card with the wider Serpentine font. */
+   card with the old, wider Serpentine font. */
 .mp-host-row .mp-host-password {
     flex-grow: 1;
     flex-shrink: 1;
     flex-basis: 0;
     min-width: 0;
-    margin: 0 14px 0 0;
+    margin: 0 16px 0 0;
 }
 
 .mp-max-label {
@@ -1054,13 +1097,13 @@
     flex-direction: row;
     align-items: center;
     flex-shrink: 0;
-    margin: 0 0 6px 0;
+    margin: 0 0 8px 0;
 }
 
 .mp-debug-label {
     flex-shrink: 0;
     min-width: 130px;
-    margin: 0 14px 0 0;
+    margin: 0 16px 0 0;
     white-space: nowrap;
 }
 
@@ -1095,8 +1138,8 @@
 
 .mp-panel .mp-intro {
     flex-shrink: 0;
-    margin-bottom: 16px;
-    font-size: 16px;
+    margin-bottom: var(--space-l);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
 }
 
@@ -1123,7 +1166,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-height: 0;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-s);
 }
 
 .mp-switch-grid {
@@ -1147,7 +1190,7 @@
 .mp-switch-grid .mp-debug-segments .choice-segment {
     flex-basis: auto;   /* FRESH / PERSISTENT: each by its text */
     padding: 0 4px;
-    font-size: 13px;
+    font-size: var(--text-caption);
 }
 
 .mp-switch-grid .mp-debug-segments .choice-segment--last {   /* ChoiceRow marks it (Unity 7 has no :last-child) */
@@ -1158,7 +1201,7 @@
     display: none;
     flex-shrink: 0;
     margin: -4px 0 8px 0;
-    font-size: 13px;
+    font-size: var(--text-small);
     letter-spacing: 2px;
     -unity-text-align: middle-center;
     color: var(--gof-amber);
@@ -1169,17 +1212,17 @@
 }
 
 .mp-host-scroll .mp-card-text {
-    margin: 6px 0 10px 0;
+    margin: 8px 0 8px 0;
 }
 
 .mp-panel .back-button {
-    margin-top: 12px;
+    margin-top: var(--space-m);
 }
 
 .mp-host-scroll .mp-card-fill {
     flex-grow: 0;
     min-height: 0;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-m);
 }
 
 .mp-host-scroll .mp-card-fill--empty {
@@ -1194,7 +1237,7 @@
 }
 
 .mp-server-count {
-    font-size: 13px;
+    font-size: var(--text-caption);
     color: var(--gof-text-dim);
 }
 
@@ -1206,7 +1249,7 @@
 
 .mp-join-label {
     flex-shrink: 0;
-    margin: 14px 0 6px 0;
+    margin: 16px 0 8px 0;
 }
 
 .mp-join-row {
@@ -1228,8 +1271,23 @@
 }
 
 .mp-join-row .mp-join-button {
-    padding: 8px 26px;
-    font-size: 18px;
+    padding: 8px 24px;
+    font-size: var(--text-small);
+}
+
+/* Each card's one action, Join and Host: the primary button (docs/UI-DESIGN.md "Buttons"). */
+.mp-join-button,
+.mp-host-button {
+    color: #FFFFFF;
+    background-color: var(--button-primary-fill);
+    border-color: var(--button-primary-line);
+}
+
+.can-hover .mp-join-button:hover,
+.mp-join-button:focus,
+.can-hover .mp-host-button:hover,
+.mp-host-button:focus {
+    background-color: var(--button-primary-focus-fill);
 }
 
 /* the host card's choice: Public / Invite only / Local network */
@@ -1253,7 +1311,7 @@
     flex-shrink: 1;
     min-height: 62px;
     max-height: 200px;
-    margin: 10px 0 0 0;
+    margin: 8px 0 0 0;
     background-color: rgba(0, 0, 0, 0.18);
 }
 
@@ -1261,7 +1319,7 @@
     flex-direction: column;
     align-items: stretch;
     margin-bottom: 3px;
-    padding: 6px 10px;
+    padding: 8px 8px;
 }
 
 .mp-server-line {
@@ -1273,7 +1331,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
-    font-size: 17px;
+    font-size: var(--text-small);
     color: var(--gof-text);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1285,7 +1343,7 @@
     flex-shrink: 1;
     min-width: 0;
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1294,9 +1352,9 @@
 
 .mp-server-tag {
     flex-shrink: 0;
-    margin-left: 8px;
-    padding: 1px 6px;
-    font-size: 11px;
+    margin-left: var(--space-s);
+    padding: 1px 8px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     white-space: nowrap;
     color: var(--gof-cyan);
@@ -1326,12 +1384,56 @@
     border-color: rgba(170, 190, 210, 0.4);
 }
 
+/* Where a listed game is and how far away: its Relay region and the round trip to it (NetPing), at the right of the
+   name line. The dot reads the ping as good / fair / poor; one not measured yet shows the dim dot and "...". */
+.mp-server-ping {
+    flex-direction: row;
+    flex-shrink: 0;
+    align-items: center;
+    margin-left: var(--space-m);
+}
+
+.mp-server-region {
+    margin-right: var(--space-s);
+    font-size: var(--text-caption);
+    color: var(--gof-text-dim);
+    white-space: nowrap;
+}
+
+.mp-server-ping-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background-color: var(--gof-text-dim);
+}
+
+.mp-server-ping-dot--good {
+    background-color: rgb(120, 220, 120);
+}
+
+.mp-server-ping-dot--fair {
+    background-color: var(--gof-amber);
+}
+
+.mp-server-ping-dot--poor {
+    background-color: rgb(255, 110, 100);
+}
+
+.mp-server-ping-ms {
+    min-width: 60px;
+    margin-left: var(--space-s);
+    font-size: var(--text-caption);
+    -unity-text-align: middle-right;
+    color: var(--gof-text-dim);
+    white-space: nowrap;
+}
+
 .mp-password {
     margin: 0 0 12px 0;
 }
 
 .mp-join-fill .mp-password {
-    margin: 10px 0 0 0;
+    margin: 8px 0 0 0;
 }
 
 .mp-join-fill {
@@ -1341,7 +1443,7 @@
 .mp-server-version {
     flex-shrink: 0;
     margin: 2px 0 0 12px;
-    font-size: 13px;
+    font-size: var(--text-caption);
     -unity-text-align: middle-right;
     color: var(--gof-text-dim);
     white-space: nowrap;
@@ -1361,21 +1463,21 @@
 }
 
 .mp-server-empty {
-    margin: 12px;
-    font-size: 15px;
+    margin: var(--space-m);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
 }
 
 .mp-join-text {
     flex-shrink: 0;
-    margin: 8px 0 6px 0;
+    margin: 8px 0 8px 0;
 }
 
 .mp-join-fill {
     flex-grow: 0;
     min-height: 0;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-m);
 }
 
 .mp-port-row {
@@ -1398,41 +1500,42 @@
 
 .mp-action {
     margin: 0;
-    padding: 12px 18px;
-    font-size: 20px;
+    padding: 12px 16px;
+    font-size: var(--text-body);
     letter-spacing: 4px;
     -unity-text-align: middle-center;
     color: var(--gof-text);
-    background-color: var(--gof-cyan-faint);
-    border-width: 1px;
-    border-color: var(--gof-cyan-soft);
-    border-radius: 2px;
+    background-color: var(--button-fill);
+    border-width: var(--button-border-compact);
+    border-color: var(--button-line);
+    border-radius: var(--button-radius);
     transition-duration: 0.18s;
 }
 
 .can-hover .mp-action:hover,
 .mp-action:focus {
     color: #FFFFFF;
-    border-color: var(--gof-amber);
-    background-color: var(--gof-cyan-soft);
+    border-color: var(--button-focus-line);
+    background-color: var(--button-focus-fill);
 }
 
 .menu-root .mp-action:active {
-    background-color: var(--gof-amber-soft);
+    background-color: var(--button-press-fill);
+    color: var(--button-press-text);
 }
 
 /* empty until there is something to say: no room kept for it (the host card needs every pixel at 16:9) */
 .mp-status {
     min-height: 0;
-    margin: 10px 0 0 0;
-    font-size: 16px;
+    margin: 8px 0 0 0;
+    font-size: var(--text-small);
     color: var(--gof-amber);
     white-space: normal;
 }
 
 .debug-note {
-    margin-top: 10px;
-    font-size: 17px;
+    margin-top: var(--space-s);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
 }
@@ -1449,11 +1552,11 @@
 .ui-large .debug-filter .unity-base-text-field__input,
 .ui-large .debug-mission-index,
 .ui-large .debug-mission-title {
-    font-size: 27px;
+    font-size: var(--text-heading);
 }
 
 .ui-large .debug-mission {
-    padding: 14px 16px;
+    padding: 16px 16px;
 }
 
 .ui-large .debug-mission-index {
@@ -1461,13 +1564,13 @@
 }
 
 .ui-large .debug-mission-section {
-    font-size: 22px;
+    font-size: var(--text-label);
 }
 
 .ui-large .debug-mission-station,
 .ui-large .debug-mission-summary,
 .ui-large .debug-note {
-    font-size: 21px;
+    font-size: var(--text-label);
 }
 
 .ui-large .debug-mission-summary {
@@ -1476,7 +1579,7 @@
 
 .ui-large .debug-column--cheats .option-row,
 .ui-large .debug-column--cheats .unity-base-field__label {
-    font-size: 25px;
+    font-size: var(--text-heading);
 }
 
 .ui-large .debug-column--cheats .option-row {
@@ -1543,7 +1646,7 @@
 
 .choice-button {
     margin: 8px 0;
-    padding: 18px 22px;
+    padding: 16px 24px;
     background-color: rgba(255, 255, 255, 0.03);
     border-width: 1px;
     border-color: var(--gof-line);
@@ -1558,12 +1661,12 @@
 .choice-button:active {
     background-color: var(--gof-cyan-faint);
     border-left-color: var(--gof-amber);
-    padding-left: 30px;   /* the content moves, not the box (a translated box slid away from the cursor) */
+    padding-left: var(--space-xxl);   /* the content moves, not the box (a translated box slid away from the cursor) */
 }
 
 /* The new game's Kaamo Club expansion toggle (under the economy choices; a choice, not a start button). */
 .choice-button--toggle {
-    margin-top: 22px;
+    margin-top: var(--space-xl);
     flex-shrink: 0;
     border-left-color: var(--gof-line);
 }
@@ -1571,14 +1674,14 @@
 /* The game options panel holds four toggles (the Kaamo Club, Hardcore, Tutorials, Capital ships) and Start: tighter so it
    fits the panel's 80 % height. */
 #gameOptionsPanel .choice-button--toggle {
-    margin-top: 10px;
+    margin-top: var(--space-s);
     margin-bottom: 0;
-    padding: 11px 20px;
+    padding: 12px 20px;
 }
 
 #gameOptionsPanel .choice-desc {
     margin-top: 3px;
-    font-size: 15px;
+    font-size: var(--text-small);
 }
 
 .choice-button--toggle.choice-button--on {
@@ -1590,15 +1693,15 @@
 }
 
 .choice-title {
-    font-size: 24px;
+    font-size: var(--text-subhead);
     letter-spacing: 4px;
     color: #FFFFFF;
     -unity-text-align: middle-left;
 }
 
 .choice-desc {
-    margin-top: 6px;
-    font-size: 17px;
+    margin-top: var(--space-s);
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
     -unity-text-align: upper-left;
@@ -1610,18 +1713,18 @@
 
 /* Start game: the Game options panel's one action, amber like the station's Launch (the toggles above it are choices). */
 .choice-button--start {
-    margin-top: 26px;
+    margin-top: var(--space-xl);
     flex-shrink: 0;
     align-items: center;
-    background-color: rgba(255, 166, 48, 0.16);
-    border-width: 2px;
+    background-color: var(--button-primary-fill);
+    border-width: var(--button-border);
     border-left-width: 2px;
-    border-color: var(--gof-amber);
-    border-radius: 4px;
+    border-color: var(--button-primary-line);
+    border-radius: var(--button-radius);
 }
 
 .choice-button--start .choice-title {
-    font-size: 28px;
+    font-size: var(--text-heading);
     letter-spacing: 6px;
     -unity-text-align: middle-center;
 }
@@ -1634,24 +1737,27 @@
 .can-hover .choice-button--start:hover,
 .choice-button--start:focus,
 .choice-button--start:active {
-    background-color: rgba(255, 166, 48, 0.38);
+    background-color: var(--button-primary-focus-fill);
     border-left-color: var(--gof-amber);
-    padding-left: 22px;   /* centred: no slide like the choices */
+    padding-left: var(--space-xl);   /* centred: no slide like the choices */
     scale: 1.02 1.02;
 }
 
 /* ---- options ------------------------------------------------------------------------ */
 
 .section-header {
-    margin: 14px 0 4px 0;
-    font-size: 15px;
+    margin: 16px 0 4px 0;
+    font-size: var(--text-caption);
     letter-spacing: 4px;
     color: var(--gof-amber);
 }
 
+/* The Language page is a scroll page like the other tabs (.options-scroll): a fixed box, its buttons ran past the bottom
+   on a phone, over the voice language row, and the last one couldn't be reached. */
 .language-list {
     flex-direction: row;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 /* The voice language row under the text language buttons. */
@@ -1662,7 +1768,7 @@
 .language-button {
     width: 46%;
     margin: 4px 8px 4px 0;
-    font-size: 20px;
+    font-size: var(--text-body);
     letter-spacing: 1px;
 }
 
@@ -1682,7 +1788,7 @@
 .about-text {
     flex-shrink: 0;
     white-space: normal;
-    font-size: 17px;
+    font-size: var(--text-small);
     color: var(--gof-text);
     -unity-text-align: upper-left;
 }
@@ -1721,14 +1827,14 @@
 }
 
 .update-button {
-    background-color: rgba(4, 10, 18, 0.78);
-    border-width: 1px;
-    border-color: var(--gof-amber);
-    border-radius: 0;
+    background-color: var(--button-primary-fill);
+    border-width: var(--button-border);
+    border-color: var(--button-primary-line);
+    border-radius: var(--button-radius);
     margin: 0;
-    padding: 10px 28px;
+    padding: 8px 28px;
     -unity-text-align: middle-center;
-    font-size: 18px;
+    font-size: var(--text-small);
     letter-spacing: 4px;
     color: var(--gof-amber);
     transition-duration: 0.18s;
@@ -1738,12 +1844,12 @@
 .update-button:focus,
 .can-hover .update-button:hover {
     color: #FFFFFF;
-    background-color: var(--gof-amber-soft);
+    background-color: var(--button-primary-focus-fill);
 }
 
 .menu-root .update-button:active {
-    background-color: var(--gof-amber);
-    color: #000000;
+    background-color: var(--button-press-fill);
+    color: var(--button-press-text);
 }
 
 .layout-phone .update-row {
@@ -1751,11 +1857,11 @@
 }
 
 .layout-phone .update-button {
-    padding: 14px 32px;
+    padding: 16px 32px;
 }
 
 .footer-text {
-    font-size: 15px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     color: var(--gof-text-dim);
 }
@@ -1797,16 +1903,16 @@
 
 .dialog-text {
     white-space: normal;
-    font-size: 19px;
+    font-size: var(--text-body);
     color: var(--gof-text);
-    margin-bottom: 26px;
+    margin-bottom: var(--space-xl);
     -unity-text-align: upper-left;
 }
 
 /* The pilot name prompt's field (MainMenu.NeedsName), hidden in the other dialogs. */
 .dialog-field {
     display: none;
-    margin: -8px 0 26px 0;
+    margin: -8px 0 24px 0;
 }
 
 .dialog-buttons {
@@ -1815,8 +1921,8 @@
 }
 
 .dialog-button {
-    margin-left: 12px;
-    font-size: 20px;
+    margin-left: var(--space-m);
+    font-size: var(--text-body);
 }
 
 /* ---- splash + fade ------------------------------------------------------------------ */
@@ -1890,8 +1996,30 @@
     display: none;
 }
 
+/* Rows 64 units high, the touch minimum (docs/UI-DESIGN.md "Touch targets"; 72 with 16 units of padding). */
 .layout-phone .menu-button {
-    padding: 16px 22px;
+    padding: 12px 24px;
+}
+
+/* The menu's rows centred between the logo's bottom (.logo: top 6 %, height 16 %) and the version line at the bottom
+   left (its tap zone, .footer-version, from about 89 %), however many rows show (8, or 9 with Resume and Debug) and at
+   any interface size: the column's own padding is a share of the width, which on a 20:9 phone put the first row a
+   fifth of the height down (the nine rows ran past the version line) and left the gap under the logo uneven. The
+   column stays in the flow (the panel host sits beside it); an absolute child ignores its padding, so 'left' takes it
+   over: 10 % of the column's 30 % is the logo's 3 %. The rows touch, each still 64 units high, so nine fit. */
+.layout-phone .main-buttons,
+.layout-phone .main-column--full .main-buttons {
+    position: absolute;
+    top: 22%;
+    bottom: 11%;
+    left: 10%;
+    right: 0;
+    margin-top: 0;
+    justify-content: center;
+}
+
+.layout-phone .main-buttons .menu-button {
+    margin: 0;
 }
 
 .layout-phone .panel-host {
@@ -1899,28 +2027,28 @@
 }
 
 .layout-phone .panel {
-    padding: 24px 34px;
+    padding: 24px 32px;
     max-height: 90%;
 }
 
 .layout-phone .panel-accent {
-    margin: 10px 0 16px 0;
+    margin: 8px 0 16px 0;
 }
 
 .layout-phone .back-button {
-    margin-top: 14px;
+    margin-top: var(--space-l);
 }
 
 .layout-phone .mp-intro {
-    margin-bottom: 14px;
+    margin-bottom: var(--space-l);
 }
 
 .layout-phone .mp-name {
-    margin-bottom: 14px;
+    margin-bottom: var(--space-l);
 }
 
 .layout-phone .mp-card {
-    padding: 14px 16px;
+    padding: 16px 16px;
 }
 
 .layout-phone .mp-panel .mp-intro {
@@ -1954,9 +2082,9 @@
 
 .mod-loading__title {
     color: var(--gof-text);
-    font-size: 30px;
+    font-size: var(--text-title);
     letter-spacing: 6px;
-    margin-bottom: 18px;
+    margin-bottom: var(--space-l);
     -unity-text-align: middle-center;
 }
 
@@ -1979,8 +2107,8 @@
 
 .mod-loading__line {
     color: var(--gof-text-dim);
-    font-size: 22px;
-    margin-top: 14px;
+    font-size: var(--text-label);
+    margin-top: var(--space-l);
     -unity-text-align: middle-center;
 }
 
@@ -2010,7 +2138,7 @@
 .card-row--many .campaign-card {
     width: 176px;
     height: 272px;
-    margin-right: 14px;
+    margin-right: var(--space-l);
     flex-shrink: 0;   /* the cards keep their size; the row scrolls */
 }
 
@@ -2029,14 +2157,14 @@
     left: 0;
     right: 0;
     bottom: 0;
-    padding: 10px 12px 12px 12px;
+    padding: 8px 12px 12px 12px;
     background-color: rgba(4, 8, 14, 0.82);
     border-top-width: 1px;
     border-top-color: var(--gof-line);
 }
 
 .mod-card__title {
-    font-size: 20px;
+    font-size: var(--text-body);
     letter-spacing: 1px;
     color: var(--gof-text);
     white-space: normal;
@@ -2045,7 +2173,7 @@
 
 .mod-card__sub {
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--text-small);
     color: var(--gof-text-dim);
     white-space: normal;
     -unity-text-align: middle-center;
@@ -2065,7 +2193,7 @@
 .mod-option-column {
     flex-shrink: 0;
     width: 476px;
-    margin-left: 12px;
+    margin-left: var(--space-m);
 }
 
 .mod-option-cards {
@@ -2075,7 +2203,7 @@
 
 .mod-option-hint {
     margin-top: 0;
-    font-size: 14px;
+    font-size: var(--text-small);
     letter-spacing: 1px;
     color: var(--gof-text-dim);
     -unity-text-align: middle-center;
@@ -2083,13 +2211,13 @@
 
 .mod-option-cards .unity-scroll-view__content-container {
     flex-direction: row;
-    padding: 12px 10px 12px 10px;   /* room for a selected card's 5 % growth */
+    padding: 12px 8px 12px 8px;   /* room for a selected card's 5 % growth */
 }
 
 .mod-option-card {
     width: 214px;
     height: 331px;
-    margin-right: 14px;
+    margin-right: var(--space-l);
     flex-shrink: 0;   /* the cards keep their size; the row scrolls */
 }
 
@@ -2114,8 +2242,8 @@
     position: absolute;
     top: 10px;
     right: 10px;
-    padding: 3px 10px;
-    font-size: 15px;
+    padding: 3px 8px;
+    font-size: var(--text-caption);
     letter-spacing: 2px;
     color: var(--gof-text-dim);
     background-color: rgba(4, 8, 14, 0.85);

@@ -1,5 +1,6 @@
 <ui:UXML xmlns:ui="UnityEngine.UIElements">
     <ui:Style src="MainMenu.uss" />
+    <ui:Style src="../GoF2InputGlyphs.uss" />
     <ui:VisualElement name="root" class="menu-root">
         <ui:VisualElement name="sideShade" class="side-shade" picking-mode="Ignore" />
         <ui:VisualElement name="bottomShade" class="bottom-shade" picking-mode="Ignore" />
@@ -41,6 +42,10 @@
                     <ui:Button name="ngPlusToggle" class="choice-button choice-button--toggle">
                         <ui:Label name="ngPlusLabel" class="choice-title gof-semibold" picking-mode="Ignore" />
                         <ui:Label name="ngPlusDesc" class="choice-desc" picking-mode="Ignore" />
+                    </ui:Button>
+                    <ui:Button name="challengeButton" class="choice-button">
+                        <ui:Label name="challengeLabel" class="choice-title gof-semibold" picking-mode="Ignore" />
+                        <ui:Label name="challengeDesc" class="choice-desc" picking-mode="Ignore" />
                     </ui:Button>
                     <ui:Button name="campaignBack" class="menu-button back-button gof-semibold" />
                 </ui:VisualElement>
@@ -134,6 +139,7 @@
                         <ui:Button name="tabControls" class="tab-button gof-semibold" />
                         <ui:Button name="tabBindings" class="tab-button gof-semibold" />
                         <ui:Button name="tabGameplay" class="tab-button gof-semibold" />
+                        <ui:Button name="tabAccessibility" class="tab-button gof-semibold" />
                         <ui:Button name="tabLanguage" class="tab-button gof-semibold" />
                     </ui:VisualElement>
                     <!-- Option rows are built from OptionsCatalog (MainMenu.SetupOptions). -->
@@ -142,9 +148,10 @@
                     <ui:ScrollView name="controlsPage" class="tab-page options-scroll" />
                     <ui:ScrollView name="bindingsPage" class="tab-page options-scroll" />
                     <ui:ScrollView name="gameplayPage" class="tab-page options-scroll" />
-                    <ui:VisualElement name="languagePage" class="tab-page">
+                    <ui:ScrollView name="accessibilityPage" class="tab-page options-scroll" />
+                    <ui:ScrollView name="languagePage" class="tab-page options-scroll">
                         <ui:VisualElement name="languageList" class="language-list" />
-                    </ui:VisualElement>
+                    </ui:ScrollView>
                     <ui:VisualElement class="options-footer">
                         <ui:Button name="optionsBack" class="menu-button back-button gof-semibold" />
                         <ui:Button name="optionsDefaults" class="menu-button back-button options-defaults gof-semibold" />
@@ -239,7 +246,7 @@
                             </ui:VisualElement>
                             </ui:ScrollView>
                             <ui:Label name="mpHostMore" class="mp-host-more gof-semibold" />
-                            <ui:Button name="mpHost" class="mp-action gof-semibold" />
+                            <ui:Button name="mpHost" class="mp-action mp-host-button gof-semibold" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:Label name="mpStatus" class="mp-status" />

@@ -84,6 +84,8 @@ namespace GoF2Remake.Flight
         public float spreadError;             // Gun+0xe0: 2 auto-cannon/scatter, 20 thermo, 0 otherwise
         /// <summary>RocketGun::update: homing only once the bullet is this old (NPC rockets 1000 ms, the player's at once).</summary>
         public float homingDelayMs;
+        /// <summary>Remake (mods, ItemStats 127-130): a second, weaker blast at each hit, a little later. Null = none.</summary>
+        public readonly GunEcho echo;
 
         // Remake, for mods (ItemStats 105-108): a gun or turret whose shots are homing missiles, and salvos.
         /// <summary>Attr 105 = 1: the shots are homing missiles (they home on the lock / the turret's target, keep their size,
@@ -115,6 +117,8 @@ namespace GoF2Remake.Flight
         public event Action<int> Expired;
         /// <summary>A bomb, mine, scatter shell or the shock blast went off at this point (the explosion).</summary>
         public event Action<Vector3> Ignited;
+        /// <summary>A shot's echo went off at this point (its damage is done; the explosion is for the view).</summary>
+        public event Action<Vector3> Echoed;
         /// <summary>A shot left the gun (gun, bullet index; a cluster salvo: its first bullet). Multiplayer sends it to the
         /// other players (NetProxy, NetPlayer).</summary>
         public event Action<Gun, int> Fired;
@@ -183,6 +187,7 @@ namespace GoF2Remake.Flight
             isBeam = IsBeamLook(look);
             damage = item.Attr(9);
             shieldFactor = ShieldFactor(item);
+            echo = GunEcho.From(item);
             emp = item.Attr(10);
             reloadMs = Mathf.Max(1, item.Attr(11, 500));
             lifetimeMs = kind == Kind.ShockBlast ? 1f : item.Attr(12, 2000);
@@ -221,6 +226,7 @@ namespace GoF2Remake.Flight
             lookIndex = visualItem.Look;
             categoryId = visualItem.categoryId;
             kind = (Kind)visualItem.categoryId;
+            echo = GunEcho.From(visualItem);
             this.damage = damage;
             this.reloadMs = Mathf.Max(1f, reloadMs);
             this.lifetimeMs = lifetimeMs;
@@ -406,6 +412,7 @@ namespace GoF2Remake.Flight
             bool dropShaken = Homing && previousLock != null && previousLock != lockTarget && previousLock.ShakesMissiles;
             LastLock = lockTarget;
             lastTargets = targets;
+            if (echo != null && echo.Waiting > 0) echo.Tick(dtMs, echoDue ??= new Action<Vector3>(EchoBlast));
             float limit = FreeLimit;
             // Missiles: 1/6 of the error per 33 ms frame, made frame-rate independent.
             float steerRate = Homing ? 1f - Mathf.Pow(5f / 6f, dtMs / 33.3f) : 0f;
@@ -460,6 +467,7 @@ namespace GoF2Remake.Flight
                 {
                     b.timer = -1e9f;   // gone
                     Hit?.Invoke(i, homeOn, goal);
+                    Struck(goal);
                     continue;
                 }
                 if (targets != null)
@@ -502,16 +510,28 @@ namespace GoF2Remake.Flight
                 b.timer = -1e9f;   // gone
                 Hit?.Invoke(i, hullTarget, hullPoint);
                 if (scatter) { AreaDamage(hullPoint, targets, false); Ignited?.Invoke(hullPoint); }   // + the burst around
+                Struck(hullPoint);
                 return;
             }
             // Remake: a hull target with a hit sphere (Target.hitSphereRadius: the player's collision probe) is hit within it too.
             if (hulls)
-                for (int t = 0; t < targets.Count; t++)
+            {
+                // Only the players' probes have one: the grid keeps them apart (TargetGrid.Spheres), the first of the list wins.
+                var withSphere = Gridded(targets) ? TargetGrid.Spheres(frame) : targets;
+                Target s = null;
+                int first = int.MaxValue;
+                for (int t = 0; t < withSphere.Count; t++)
                 {
-                    var s = targets[t];
-                    if ((object)s == null || s.hitSphereRadius <= 0f || s == null || !s.HasHull || !MayHit(s, targets)) continue;
+                    var o = withSphere[t];
+                    if ((object)o == null || o.hitSphereRadius <= 0f || o == null || !o.HasHull || !MayHit(o, targets)) continue;
+                    if (DistanceToSegment(o.transform.position, from, b.position) > o.hitSphereRadius) continue;
+                    if (ReferenceEquals(withSphere, targets)) { s = o; break; }
+                    int at = IndexIn(targets, o);
+                    if (at < first) { first = at; s = o; }
+                }
+                if (s != null)
+                {
                     var c = s.transform.position;
-                    if (DistanceToSegment(c, from, b.position) > s.hitSphereRadius) continue;
                     if (IsBomb) { Ignite(targets); return; }   // contact: area damage, no direct hit
                     var seg = b.position - from;
                     float k = seg.sqrMagnitude > 1e-12f ? Mathf.Clamp01(Vector3.Dot(c - from, seg) / seg.sqrMagnitude) : 1f;
@@ -519,18 +539,22 @@ namespace GoF2Remake.Flight
                     b.timer = -1e9f;   // gone
                     Hit?.Invoke(i, s, at);
                     if (scatter) { AreaDamage(at, targets, false); Ignited?.Invoke(at); }
+                    Struck(at);
                     return;
                 }
-            for (int t = 0; t < targets.Count; t++)
+            }
+            // A long list: only the grid's targets near the shot (TargetGrid), taken in the list's order as the walk finds them.
+            bool gridded = !scatter && Gridded(targets);
+            if (gridded)
             {
-                var target = targets[t];
-                if (hulls && (object)target != null && target != null && target.HasHull && (!scatter || BigTarget(target))) continue;   // tested above
-                // The cheap sphere test first (Target.MayContain): most targets are nowhere near the bullet. Scatter guns'
-                // cube grows with the distance, so they keep the full test.
-                if ((object)target == null || (kind != Kind.ScatterGun && !target.MayContain(probe, frame))) continue;
-                if (target == null || target == owner || !target.Alive || target.phased) continue;   // phased: flies through
-                if (Ignores != null && Ignores(target)) continue;
-                if (kind == Kind.ScatterGun ? !InScatterCube(target, b.position - b.velocity) : !target.Contains(b.position - b.velocity)) continue;
+                nearShot.Clear();
+                TargetGrid.Near(probe, frame, nearShot);
+            }
+            for (int after = -1; ;)
+            {
+                var target = gridded ? FirstStruckNear(targets, probe, frame, hulls, after, out after)
+                                     : FirstStruck(targets, probe, frame, hulls, scatter, after, out after);
+                if ((object)target == null) return;
                 // Remake: a shot inside a big hull's boxes and a smaller target's cube (a capital ship's turret on its hull)
                 // hits the smaller one. Gun::calcCharacterCollision takes the first target of the list, and the host comes
                 // before its turrets, so most turrets, inside the hull's boxes, couldn't be shot (the hull took it); shots
@@ -547,8 +571,60 @@ namespace GoF2Remake.Flight
                 b.timer = -1e9f;   // gone
                 Hit?.Invoke(i, target, point);
                 if (kind == Kind.ScatterGun) { AreaDamage(point, targets, false); Ignited?.Invoke(point); }   // + the burst around
+                Struck(point);
                 return;
             }
+        }
+
+        /// <summary>The first target of 'targets' after index 'after' the shot at 'probe' strikes, and its index; null = none.</summary>
+        Target FirstStruck(IReadOnlyList<Target> targets, Vector3 probe, int frame, bool hulls, bool scatter, int after, out int index)
+        {
+            for (int t = after + 1; t < targets.Count; t++)
+                if (Strikes(targets[t], probe, frame, hulls, scatter)) { index = t; return targets[t]; }
+            index = targets.Count;
+            return null;
+        }
+
+        /// <summary>FirstStruck through the grid: of the targets near the shot (nearShot, from TargetGrid) it strikes, the one
+        /// first in 'targets' after 'after'.</summary>
+        Target FirstStruckNear(IReadOnlyList<Target> targets, Vector3 probe, int frame, bool hulls, int after, out int index)
+        {
+            Target struck = null;
+            index = int.MaxValue;
+            for (int t = 0; t < nearShot.Count; t++)
+            {
+                var o = nearShot[t];
+                if (!Strikes(o, probe, frame, hulls, false)) continue;
+                int at = IndexIn(targets, o);
+                if (at > after && at < index) { index = at; struck = o; }
+            }
+            if ((object)struck == null) index = targets.Count;
+            return struck;
+        }
+
+        /// <summary>The shot at 'probe' (the bullet's last position) strikes 'target' (not one a hull test handles).</summary>
+        bool Strikes(Target target, Vector3 probe, int frame, bool hulls, bool scatter)
+        {
+            // The cheap sphere test first (Target.MayContain, measured once a frame): most targets are nowhere near the
+            // bullet, and Unity's null check and HasHull cost a native call each (every shot against every target was a
+            // third of a 20-fleet-battle frame). Scatter guns' cube grows with the distance, so they keep the full test.
+            if ((object)target == null || (!scatter && !target.MayContain(probe, frame))) return false;
+            if (hulls && target != null && target.HasHull && (!scatter || BigTarget(target))) return false;   // tested above
+            if (target == null || target == owner || !target.Alive || target.phased) return false;   // phased: flies through
+            if (Ignores != null && Ignores(target)) return false;
+            return scatter ? InScatterCube(target, probe) : target.Contains(probe);
+        }
+
+        /// <summary>Lists this long are searched through TargetGrid (in Play mode: it files Target.All, which only an enabled
+        /// target joins); shorter ones are quicker to walk.</summary>
+        const int GridFrom = 24;
+        static bool Gridded(IReadOnlyList<Target> targets) => targets.Count >= GridFrom && Application.isPlaying;
+        readonly List<Target> nearShot = new List<Target>();
+
+        static int IndexIn(IReadOnlyList<Target> targets, Target t)
+        {
+            for (int k = 0; k < targets.Count; k++) if ((object)targets[k] == t) return k;
+            return int.MaxValue;
         }
 
         /// <summary>How far 'p' is from the segment a..b (metres).</summary>
@@ -679,27 +755,44 @@ namespace GoF2Remake.Flight
             return false;
         }
 
-        /// <summary>The blast: every target within attr 14 takes damage * f and EMP * f.</summary>
-        void AreaDamage(Vector3 center, IReadOnlyList<Target> targets, bool bomb)
+        /// <summary>The blast: every target within attr 14 (or 'radius', units) takes damage * f * scale and EMP * f * scale.</summary>
+        void AreaDamage(Vector3 center, IReadOnlyList<Target> targets, bool bomb, float scale = 1f, float radius = 0f)
         {
-            if (targets == null || magnitude <= 0f) return;
+            float reach = radius > 0f ? radius : magnitude;
+            if (targets == null || reach <= 0f) return;
             for (int t = 0; t < targets.Count; t++)
             {
                 var target = targets[t];
                 if (target == null || target == owner || !target.Alive || target.isPlayer || target.phased) continue;
                 if (kind == Kind.EmpBomb && target.isAsteroid) continue;   // sort 6 skips asteroids
                 float d = (target.transform.position - center).magnitude / MetersPerUnit;
-                if (d >= magnitude) continue;
-                float f = kind == Kind.Mine ? (10000f - d) / 10000f : Mathf.Clamp01((magnitude - d) / magnitude);
+                if (d >= reach) continue;
+                float f = kind == Kind.Mine ? (10000f - d) / 10000f : Mathf.Clamp01((reach - d) / reach);
                 if (f <= 0f) continue;
-                int dmg = 0, e = (int)(f * emp);
+                int dmg = 0, e = (int)(f * emp * scale);
                 if (kind != Kind.EmpBomb)   // EMP bombs: EMP only, attr 9 is never applied
                 {
                     float fd = bomb && target.isAsteroid ? f * 0.6f : f;
-                    dmg = (int)(fd * damage);
+                    dmg = (int)(fd * damage * scale);
                 }
                 if (dmg > 0 || e > 0) AreaHit?.Invoke(target, dmg, e, center);
             }
+        }
+
+        Action<Vector3> echoDue;
+
+        /// <summary>A shot hit at 'point' (a bullet's hit or a homing missile at its goal): its echo, if the item has one.</summary>
+        void Struck(Vector3 point)
+        {
+            if (echo != null) echo.Schedule(point);
+        }
+
+        /// <summary>The echo goes off: the blast at percent of the shot's damage, EMP and size (echoRadius, else attr 14).
+        /// Its area takes the same rules as a bomb's, the owner and the player aside.</summary>
+        void EchoBlast(Vector3 at)
+        {
+            AreaDamage(at, lastTargets, false, echo.Scale, echo.radiusUnits);
+            Echoed?.Invoke(at);
         }
 
         /// <summary>Render scale: projectiles shrink linearly over their last 1000 ms (ObjectGun); rockets, missiles, bombs

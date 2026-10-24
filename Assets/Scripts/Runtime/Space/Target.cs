@@ -70,6 +70,12 @@ namespace GoF2Remake.Flight
         [NonSerialized] public Action<float, Vector3, bool, float> RemoteDamage;
         /// <summary>Multiplayer: EMP (points) passed on to the game that owns the ship (NetProxy, NetPlayer).</summary>
         [NonSerialized] public Action<int> RemoteEmp;
+        /// <summary>Multiplayer (NetProxy): another game's EMP-disabled NPC with cargo: its first cargo entry (item -1 = none),
+        /// which this player's tractor beam may steal (CombatRadar); RemoteSteal(item, amount) takes it off the owner's ship.</summary>
+        [NonSerialized] public int netStealItem = -1, netStealAmount;
+        [NonSerialized] public Action<int, int> RemoteSteal;
+        /// <summary>Multiplayer: a cargo steal candidate on another game's ship (KIPlayer+0x20 on the owner's side).</summary>
+        public bool NetStealable => RemoteSteal != null && netStealItem >= 0 && netStealAmount > 0;
         /// <summary>Multiplayer: the killing hit came from another player (NetProxy): counts as the player's for a freelance
         /// mission (FreelanceOrbit), though the game takes it as an NPC's hit (killedByNpc: no standing change here).</summary>
         [NonSerialized] public bool killedByRemote;
@@ -188,10 +194,18 @@ namespace GoF2Remake.Flight
         /// target: false.</summary>
         public bool MayContain(Vector3 point, int frame)
         {
+            float reach = BroadSphere(frame, out var centre);
+            return reach >= 0f && (point - centre).sqrMagnitude <= reach * reach;
+        }
+
+        /// <summary>MayContain's sphere this 'frame': its centre and its radius (metres), -1 for a destroyed target. TargetGrid
+        /// files the targets by it.</summary>
+        public float BroadSphere(int frame, out Vector3 centre)
+        {
             if (broadFrame != frame)
             {
                 broadFrame = frame;
-                if (this == null) { broadReach = -1f; return false; }
+                if (this == null) { broadReach = -1f; centre = broadCentre; return -1f; }
                 var t = transform;
                 broadCentre = t.position;
                 if (boxes != null && boxes.Length > 0)
@@ -209,7 +223,8 @@ namespace GoF2Remake.Flight
                 // How far a ship can still move this frame after being measured (at most ~1 m/ms), plus 10 m.
                 broadReach += 10f + Time.deltaTime * 1000f;
             }
-            return broadReach >= 0f && (point - broadCentre).sqrMagnitude <= broadReach * broadReach;
+            centre = broadCentre;
+            return broadReach;
         }
 
         /// <summary>Gun::calcCharacterCollision: 'point' (metres) inside the cube, or inside a local box.</summary>
@@ -223,6 +238,55 @@ namespace GoF2Remake.Flight
             }
             var d = transform.position - point;
             return Mathf.Abs(d.x) < radius && Mathf.Abs(d.y) < radius && Mathf.Abs(d.z) < radius;
+        }
+
+        // ---- aim spots (remake, the user's request 2026-10-22: NPCs shot every ship in its middle) ---------------------
+
+        /// <summary>Points on the model NPC fighters and turrets aim at (NpcShip.AimAt), each on a part (so it moves with it):
+        /// up to SpotsPerMesh vertices of each readable mesh (not the additive / light / glow layers or a lower LOD), else
+        /// the hit boxes' inner corners; none = the centre.</summary>
+        [NonSerialized] List<(Transform part, Vector3 local)> aimSpots;
+        static readonly Dictionary<Mesh, Vector3[]> meshSpots = new Dictionary<Mesh, Vector3[]>();
+        const int SpotsPerMesh = 24;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetSpots() => meshSpots.Clear();
+
+        /// <summary>Aim spot 'i' (any number, wrapped) in world space; the centre when the model has none.</summary>
+        public Vector3 AimSpot(int i)
+        {
+            BuildAimSpots();
+            if (aimSpots.Count == 0) return transform.position;
+            var s = aimSpots[(int)((uint)i % (uint)aimSpots.Count)];
+            if (s.part == null) { aimSpots = null; return transform.position; }   // the model was swapped: made again next time
+            return s.part.TransformPoint(s.local);
+        }
+
+        void BuildAimSpots()
+        {
+            if (aimSpots != null) return;
+            aimSpots = new List<(Transform, Vector3)>();
+            foreach (var mf in GetComponentsInChildren<MeshFilter>(true))
+            {
+                var m = mf.sharedMesh;
+                if (m == null || !m.isReadable || m.vertexCount == 0 || mf.GetComponent<Renderer>() == null) continue;
+                string n = m.name.ToLowerInvariant();
+                if (n.Contains("_add") || n.Contains("_lights") || n.Contains("_lod_") || n.Contains("glow")) continue;
+                if (!meshSpots.TryGetValue(m, out var pts))
+                {
+                    var v = m.vertices;
+                    int count = Mathf.Min(SpotsPerMesh, v.Length);
+                    pts = new Vector3[count];
+                    for (int k = 0; k < count; k++) pts[k] = v[(int)((long)k * v.Length / count)];
+                    meshSpots[m] = pts;
+                }
+                foreach (var p in pts) aimSpots.Add((mf.transform, p));
+            }
+            if (aimSpots.Count > 0 || boxes == null) return;
+            foreach (var b in boxes)
+                for (int c = 0; c < 8; c++)
+                    aimSpots.Add((transform, b.center + Vector3.Scale(b.extents * 0.7f,
+                        new Vector3((c & 1) == 0 ? -1 : 1, (c & 2) == 0 ? -1 : 1, (c & 4) == 0 ? -1 : 1))));
         }
 
         /// <summary>Remake (World.CapitalShips' turrets): the point of its hit boxes nearest 'from' (world), a little inside the

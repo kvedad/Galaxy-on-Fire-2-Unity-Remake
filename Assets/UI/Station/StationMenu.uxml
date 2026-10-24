@@ -9,6 +9,7 @@
     <ui:VisualElement name="stationRoot" class="station-root" picking-mode="Ignore">
         <ui:VisualElement class="side-shade" picking-mode="Ignore" />
         <ui:VisualElement class="bottom-shade" picking-mode="Ignore" />
+        <ui:VisualElement class="top-shade" picking-mode="Ignore" />
         <ui:VisualElement name="dragZone" class="drag-zone" />
         <ui:VisualElement name="loungeTags" class="lounge-tags" picking-mode="Ignore" />
         <ui:VisualElement name="safeArea" class="station-safe" picking-mode="Ignore">
@@ -18,8 +19,8 @@
                 <ui:Button name="menuButton" class="station-menu-button gof-semibold" />
             </ui:VisualElement>
             <ui:VisualElement name="fundsBar" class="station-funds" picking-mode="Ignore">
-                <ui:Label name="fundsCargo" class="station-funds-cargo gof-semibold" picking-mode="Ignore" />
                 <ui:Label name="fundsCredits" class="station-funds-credits gof-semibold" picking-mode="Ignore" />
+                <ui:Label name="fundsCargo" class="station-funds-cargo gof-semibold" picking-mode="Ignore" />
             </ui:VisualElement>
 
             <ui:VisualElement name="sidePanel" class="side-panel" picking-mode="Ignore">
@@ -77,10 +78,6 @@
                                 <ui:Label name="tradeMounted" class="trade-side-note" picking-mode="Ignore" />
                             </ui:VisualElement>
                         </ui:VisualElement>
-                        <ui:VisualElement name="tradeAllRow" class="trade-all-row trade-box--hidden">
-                            <ui:Button name="sellAllButton" class="trade-all trade-all--first gof-semibold" />
-                            <ui:Button name="buyAllButton" class="trade-all trade-all--buy gof-semibold" />
-                        </ui:VisualElement>
                         <ui:Button name="actionButton" class="detail-action gof-semibold" />
                         <ui:Button name="actionButton2" class="detail-action detail-action--secondary gof-semibold" />
                         <ui:ScrollView name="detailScroll" class="detail-scroll">
@@ -122,8 +119,8 @@
                 <ui:VisualElement class="hangar-top">
                     <ui:Label name="missionsTitle" class="missions-title gof-semibold" picking-mode="Ignore" />
                     <ui:Button name="missionsTab" class="missions-tab gof-semibold" />
-                    <ui:Button name="wantedTab" class="missions-tab gof-semibold" />
                     <ui:Button name="pirateTab" class="missions-tab gof-semibold" />
+                    <ui:Button name="wantedTab" class="missions-tab gof-semibold" />
                     <ui:VisualElement class="hangar-top-spacer" picking-mode="Ignore" />
                     <ui:Button name="missionsClose" class="hangar-close gof-semibold" />
                 </ui:VisualElement>
@@ -202,7 +199,7 @@
             </ui:VisualElement>
 
             <ui:VisualElement name="hints" class="station-hints" picking-mode="Ignore" />
-            <ui:Label name="toast" class="station-toast" picking-mode="Ignore" />
+            <ui:Label name="toast" class="station-toast gof-toast" picking-mode="Ignore" />
         </ui:VisualElement>
 
         <ui:VisualElement name="systemMenu" class="station-dialog-backdrop">

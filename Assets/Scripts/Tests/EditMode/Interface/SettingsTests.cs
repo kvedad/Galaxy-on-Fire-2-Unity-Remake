@@ -5,7 +5,8 @@
 // V-Sync, field of view the original's 1.22 rad, hangar shadows "All ships", hangar depth of field off, vibration 100 %,
 // mouse dead zone 8 %, tutorials off, story step on, auto-play dialogue on, the rules' "on / off by default"...); the stick
 // dead zone is the Input System's own default (0.125). Clamps: the setters' ranges, checked as invariants. The reset
-// groups: "Default settings" per tab (Settings' key lists) and for every tab (ResetToDefaults, the language kept).
+// groups: "Default settings" per tab (Settings' key lists) and for every tab (ResetToDefaults, the language kept). A row's
+// own default without changing it (Settings.TryDefault, OptionControl's reset).
 // Every PlayerPrefs value is put back afterwards (DataUiTestKit.PrefsSnapshot).
 
 using System.Linq;
@@ -32,8 +33,8 @@ namespace GoF2Remake.Tests
         public void OriginalOptionDefaults()
         {
             AllDefaults();
-            Assert.AreEqual(2, Settings.Quality, "options+0x28 = 1.0: High");
-            Assert.IsTrue(Settings.QualityEffects);
+            Assert.IsTrue(Settings.FireSmoke && Settings.Fog, "options+0x28 = 1.0: the original's Quality High");
+            Assert.AreEqual(2, Settings.DetailDistance);
             Assert.AreEqual(1, Settings.Brightness, "options+0x24 = 0.5: the middle of Dark / Medium / Bright");
             Assert.AreEqual(0f, Settings.BrightnessExposure);
             Assert.AreEqual(1f, Settings.Sensitivity, "options+0x14 = 1.0");
@@ -50,7 +51,7 @@ namespace GoF2Remake.Tests
         {
             AllDefaults();
             Assert.AreEqual(FrameRate.VSync, Settings.FrameRate, "default V-Sync");
-            Assert.AreEqual(Settings.HangarShadowsAll, Settings.HangarShadows, "default All ships");
+            Assert.AreEqual(Settings.HangarShadowsPlayer, Settings.HangarShadows, "default Player ship only");
             Assert.IsFalse(Settings.HangarDepthOfField, "off by default");
             Assert.AreEqual(1f, Settings.HapticsIntensity, "vibration 100 %");
             Assert.AreEqual(0.08f, Settings.MouseDeadzone, 1e-6f, "mouse dead zone 8 %");
@@ -201,9 +202,9 @@ namespace GoF2Remake.Tests
             Settings.TiltSensitivity = 3f; Assert.AreEqual(1f, Settings.TiltSensitivity);
             Settings.HapticsIntensity = -0.5f; Assert.AreEqual(0f, Settings.HapticsIntensity);
             Settings.CameraShake = 4f; Assert.AreEqual(1f, Settings.CameraShake);
-            Settings.Quality = 7; Assert.AreEqual(2, Settings.Quality);
-            Settings.Quality = -3; Assert.AreEqual(0, Settings.Quality);
-            Assert.IsFalse(Settings.QualityEffects, "Low: smoke and fog off");
+            Settings.DetailDistance = 7; Assert.AreEqual(3, Settings.DetailDistance);
+            Settings.DetailDistance = -3; Assert.AreEqual(0, Settings.DetailDistance);
+            Settings.TextureFiltering = 9; Assert.AreEqual(3, Settings.TextureFiltering);
             Settings.Brightness = 9; Assert.AreEqual(2, Settings.Brightness);
             Settings.HangarShadows = 9; Assert.AreEqual(2, Settings.HangarShadows);
             Settings.HangarShadows = -1; Assert.AreEqual(0, Settings.HangarShadows);
@@ -220,6 +221,30 @@ namespace GoF2Remake.Tests
             Settings.RenderScale = 0.1f; Assert.AreEqual(0.5f, Settings.RenderScale);
             Settings.RenderScale = 3f; Assert.AreEqual(2f, Settings.RenderScale);
             Settings.RenderScale = 0.75f; Assert.AreEqual(0.75f, Settings.RenderScale);
+        }
+
+        [Test]
+        public void AndroidAtOneHundredPercentGetsMsaa()
+        {
+            // MSAA off -> 2x on Android at 100 %, the scale left alone.
+            Assert.AreEqual(2, Bootstrap.AppliedMsaa(1, 1f, true, false));
+            Assert.AreEqual(1f, Bootstrap.AppliedRenderScale(1f, true, false));
+            // The player's own MSAA, other scales, other platforms: as picked.
+            Assert.AreEqual(4, Bootstrap.AppliedMsaa(4, 1f, true, false));
+            Assert.AreEqual(1, Bootstrap.AppliedMsaa(1, 0.9f, true, false));
+            Assert.AreEqual(1, Bootstrap.AppliedMsaa(1, 1.25f, true, false));
+            Assert.AreEqual(1, Bootstrap.AppliedMsaa(1, 1f, false, false));
+            Assert.AreEqual(1f, Bootstrap.AppliedRenderScale(1f, false, true));
+        }
+
+        [Test]
+        public void AndroidUnderATemporalUpscalerDrawsOneHundredPercentFarEnoughBelowItForUrp()
+        {
+            Assert.AreEqual(1, Bootstrap.AppliedMsaa(1, 1f, true, true));   // temporal upscalers need MSAA off
+            Assert.AreEqual(Bootstrap.AndroidFullScale, Bootstrap.AppliedRenderScale(1f, true, true));
+            // URP's kRenderScaleThreshold: closer than 0.05 to 1 is rendered as 1.
+            Assert.GreaterOrEqual(Mathf.Abs(1f - Bootstrap.AppliedRenderScale(1f, true, true)), 0.05f);
+            Assert.AreEqual(0.9f, Bootstrap.AppliedRenderScale(0.9f, true, true));
         }
 
         [Test]
@@ -279,17 +304,17 @@ namespace GoF2Remake.Tests
             AllDefaults();
             float music = Settings.MusicVolume;
             Settings.MusicVolume = music > 0.5f ? 0.1f : 0.9f;
-            Settings.Quality = 0;
+            Settings.DetailDistance = 0;
             Settings.InvertPitch = true;
             Settings.TutorialHints = true;
             Settings.Reset(Settings.SoundKeys);
             Assert.AreEqual(music, Settings.MusicVolume, 1e-6f, "Sound reset");
-            Assert.AreEqual(0, Settings.Quality, "Graphics kept");
+            Assert.AreEqual(0, Settings.DetailDistance, "Graphics kept");
             Assert.IsTrue(Settings.InvertPitch, "Controls kept");
             Assert.IsTrue(Settings.TutorialHints, "Gameplay kept");
             Settings.Reset(Settings.ControlsKeys);
             Assert.IsFalse(Settings.InvertPitch);
-            Assert.AreEqual(0, Settings.Quality);
+            Assert.AreEqual(0, Settings.DetailDistance);
         }
 
         [Test]
@@ -302,14 +327,14 @@ namespace GoF2Remake.Tests
                 bool fps = Settings.ShowFps, flights = Settings.HangarFlights;
                 float sfx = Settings.SfxVolume;
                 Settings.Language = "nl";
-                Settings.Quality = 0;
+                Settings.DetailDistance = 0;
                 Settings.ShowFps = !fps;
                 Settings.InvertYaw = true;
                 Settings.HangarFlights = !flights;
                 Settings.VoiceLanguage = "de";
                 Settings.SfxVolume = sfx > 0.5f ? 0.2f : 0.8f;
                 Settings.ResetToDefaults();
-                Assert.AreEqual(2, Settings.Quality);
+                Assert.AreEqual(2, Settings.DetailDistance);
                 Assert.AreEqual(fps, Settings.ShowFps);
                 Assert.IsFalse(Settings.InvertYaw);
                 Assert.AreEqual(flights, Settings.HangarFlights);
@@ -348,6 +373,34 @@ namespace GoF2Remake.Tests
                 Assert.AreEqual(after + 1, fired);
             }
             finally { Settings.Changed -= Count; }
+        }
+    
+        [Test]
+        public void ARowsDefaultIsReadWithoutChangingTheOption()
+        {
+            Settings.MasterVolume = 0.3f;
+            Settings.FieldOfView = 80f;
+            Assert.IsTrue(Settings.TryDefault(() => Settings.MasterVolume, out float master));
+            Assert.AreEqual(1f, master);
+            Assert.IsTrue(Settings.TryDefault(() => Settings.FieldOfView, out float fov));
+            Assert.AreEqual(1.22f * Mathf.Rad2Deg, fov, 0.5f, "the original's 1.22 rad");
+            Assert.AreEqual(0.3f, Settings.MasterVolume, 1e-5f, "the option itself unchanged");
+            Assert.AreEqual(80f, Settings.FieldOfView, 1e-5f);
+            Assert.IsFalse(Settings.TryDefault(() => 42f, out _), "a getter that reads no option has no default");
+        }
+
+        [Test]
+        public void TheFieldOfViewAtItsDefaultShowsNoResetArrow()
+        {
+            var fov = GoF2Remake.UI.OptionsCatalog.All().Find(d => d.id == "fov");
+            var row = new GoF2Remake.UI.OptionControl(fov);
+            row.ResetToDefault();
+            Assert.IsTrue(row.IsDefault(), "70° stored for the original's 69.9° is the default");
+            Settings.FieldOfView = 80f;
+            Assert.IsFalse(row.IsDefault());
+            row.ResetToDefault();
+            Assert.IsTrue(row.IsDefault());
+            Assert.AreEqual(70f, Settings.FieldOfView, 1e-4f);
         }
     }
 }

@@ -77,6 +77,9 @@ namespace GoF2Remake.UI
         // Actions (FlightHud).
         public Func<bool> FirePressed;             // true = the press was an action (no shooting)
         public Action SecondaryReleased, BoostReleased, CameraReleased, MenuReleased, TurretReleased;
+        /// <summary>The camera button went down / was let go off it (FreeLookCamera.CameraDown / CameraUp: a hold switches the
+        /// cockpit view).</summary>
+        public Action CameraPressed, CameraCancelled;
         public Action PausePressed, PauseReleased, LevelOut, CycleSecondary;
         // The weapon strip (remake): the mounted secondaries in mount order, an item's ammo, the selection, a pick.
         public Func<List<int>> SecondaryList;
@@ -93,6 +96,8 @@ namespace GoF2Remake.UI
         public Vector2 Stick { get; private set; }
         /// <summary>The fire button is held (or autofire is latched) and the press wasn't an action.</summary>
         public bool FireHeld => autofire || (firePointer >= 0 && !fireSwallowed);
+        /// <summary>The pause button (in the HUD root): the top readout keeps left of it while it shows (FlightHud).</summary>
+        public VisualElement PauseButton => pause;
 
         const float S0 = 415f, F0 = 365f;   // Globals::Globals: the Android defaults
         const float StickTravel = 94f, StickHitX = 112f, StickHitY = 216f;
@@ -163,7 +168,7 @@ namespace GoF2Remake.UI
             knob = Image(layer, knobOff, false);
             HookStick();
             cluster = Image(layer, clusterBottom, false);
-            camera = Button(Image(layer, camOff[3]), null, () => CameraReleased?.Invoke());
+            camera = Button(Image(layer, camOff[3]), () => CameraPressed?.Invoke(), () => CameraReleased?.Invoke(), () => CameraCancelled?.Invoke());
             turret = Button(Image(layer, turretOff), null, () => TurretReleased?.Invoke());
             menu = Button(Image(layer, menuOff), null, () => MenuReleased?.Invoke());
             secondary = Image(layer, secOff);
@@ -246,7 +251,7 @@ namespace GoF2Remake.UI
 
         /// <summary>A button acting on press / on release over it (MGame::OnTouchEnd acts on the element under the finger:
         /// releasing after sliding off does nothing); lit while held.</summary>
-        VisualElement Button(VisualElement e, Action down, Action up)
+        VisualElement Button(VisualElement e, Action down, Action up, Action cancelled = null)
         {
             int pointer = -1;
             e.RegisterCallback<PointerDownEvent>(ev =>
@@ -264,9 +269,10 @@ namespace GoF2Remake.UI
                 bool over = e.ContainsPoint(ev.localPosition);
                 Release();
                 if (over) up?.Invoke();
+                else cancelled?.Invoke();
                 ev.StopPropagation();
             });
-            e.RegisterCallback<PointerCancelEvent>(ev => { if (ev.pointerId == pointer) Release(); });
+            e.RegisterCallback<PointerCancelEvent>(ev => { if (ev.pointerId == pointer) { Release(); cancelled?.Invoke(); } });
             e.RegisterCallback<PointerCaptureOutEvent>(_ => { if (pointer >= 0) { pointer = -1; held.Remove(e); } });
             void Release()
             {
@@ -400,8 +406,12 @@ namespace GoF2Remake.UI
             return 0f;
         }
 
-        float Width => layer.contentRect.width > 0f ? layer.contentRect.width : 1920f;
-        float Height => layer.contentRect.height > 0f ? layer.contentRect.height : 1080f;
+        // Without touch input (keys, a controller) the touch layer is display: none and has no size: the gauge layer, the
+        // same box and always shown, gives it then. The 1920 x 1080 fallback put the secondary plate left of the centre on
+        // a wider interface (an ultrawide screen at 21:9 or full width; a 16:9 one hid it).
+        VisualElement SizeBox => layer.contentRect.width > 0f || plate?.parent == null ? layer : plate.parent;
+        float Width => SizeBox.contentRect.width > 0f ? SizeBox.contentRect.width : 1920f;
+        float Height => SizeBox.contentRect.height > 0f ? SizeBox.contentRect.height : 1080f;
 
         Vector2 ToScreenDelta(Vector2 panelDelta)
         {
@@ -642,6 +652,9 @@ namespace GoF2Remake.UI
             frame = f;
             if (f.mode != Mode.Full && was == Mode.Full) ReleaseAll();
             if (f.mode != Mode.Full) autofire = false;
+            // NavigationView's autopilot / fast-forward block goes with the controls: it shows it only while they do, but
+            // the HUD skips that update under the pause menu, so the block stayed there (and over cutscenes it was shown).
+            if (navButtons != null && (f.mode == Mode.Off || f.mode == Mode.PauseOnly)) navButtons.style.display = DisplayStyle.None;
             Layout();
             Draw(dtMs);
         }
@@ -816,7 +829,9 @@ namespace GoF2Remake.UI
             gauge.style.height = fh;
             gaugeFill.style.top = fh - 83f;
             gauge.style.opacity = a;
-            gaugeText.text = ((int)(thrust * 100f)).ToString();
+            // Whole percent, cut like the original, past float error: the wheel's 0.1 steps leave 0.7 - 0.1 = 0.5999999,
+            // which read 59 (a player's report: scrolling down went 69, 59, ...).
+            gaugeText.text = Mathf.FloorToInt(thrust * 100f + 0.001f).ToString();
             Place(gaugeText, new Vector2(f.crosshair.x - 61f, f.crosshair.y + 83f / 1.6f));
             gaugeText.style.opacity = a;
         }

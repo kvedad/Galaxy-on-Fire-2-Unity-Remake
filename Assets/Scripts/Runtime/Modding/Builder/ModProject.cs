@@ -11,6 +11,8 @@
 // new-game options and the campaign (ProjectGame.cs) and the quests made in the builder (events/<name>.gof2quest,
 // ProjectQuest). Its audio is plain files: music/, sounds/ and voices/ (AudioFiles). What other mods it uses is its
 // manifest's "dependencies" (AddDependency: ModRefs adds one when another mod's content is picked).
+// A project can also start from a mod made elsewhere (an installed one, a downloaded .zip): CopyMod copies its files as
+// they are and keeps its id, so Export replaces the installed copy; what the builder doesn't edit stays as it was.
 // Plain C#.
 
 using System;
@@ -147,6 +149,7 @@ namespace GoF2Remake.Modding
                 Directory.CreateDirectory(Root);
                 foreach (var dir in Directory.GetDirectories(Root))
                 {
+                    if (Path.GetFileName(dir).StartsWith(".")) continue;   // an import being copied (CopyMod)
                     if (!File.Exists(Path.Combine(dir, ModManifest.FileName))) continue;
                     var p = Load(dir);
                     if (p != null) l.Add(p);
@@ -168,9 +171,11 @@ namespace GoF2Remake.Modding
             return id;
         }
 
-        /// <summary>The id this project's name gives: its slug, numbered ("_2") when another project or mod has that.</summary>
+        /// <summary>The id this project's name gives: its slug, numbered ("_2") when another project or mod has that. An
+        /// imported mod (KeepsId) keeps its own whatever it is called.</summary>
         public string IdFromName(string name)
         {
+            if (KeepsId) return Id;
             string id = Slug(name), unique = id;
             for (int i = 2; IdRefusal(unique) != null && i < 1000; i++) unique = $"{id}_{i}";
             return unique;
@@ -244,8 +249,12 @@ namespace GoF2Remake.Modding
                 }
                 string events = Path.Combine(folder, ProjectQuest.Folder);
                 if (Directory.Exists(events))
-                    foreach (var f in Directory.GetFiles(events, "*." + ProjectQuest.Extension).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+                    foreach (var f in Directory.GetFiles(events, "*." + ProjectQuest.Extension).Concat(Directory.GetFiles(events, "*." + ProjectQuest.LegacyExtension))
+                                               .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
                     {
+                        // An old .gof2quest beside a .gof2mission of the same name: the new one counts.
+                        if (f.EndsWith("." + ProjectQuest.LegacyExtension, StringComparison.OrdinalIgnoreCase)
+                            && File.Exists(Path.ChangeExtension(f, ProjectQuest.Extension))) continue;
                         try { p.Quests.Add(new ProjectQuest(Path.GetFileNameWithoutExtension(f), JObject.Parse(File.ReadAllText(f)))); }
                         catch (Exception e) { p.LoadError ??= $"{ProjectQuest.Folder}/{Path.GetFileName(f)}: {e.Message}"; }
                     }
@@ -393,6 +402,11 @@ namespace GoF2Remake.Modding
             return null;
         }
 
+        /// <summary>A mod made elsewhere (CopyMod, builder.json "keepId"): its id doesn't follow the name. Saves and
+        /// multiplayer sessions name its content by "id:name", so a new id would take its ships and items out of them, and
+        /// other mods may depend on it.</summary>
+        public bool KeepsId => builder["keepId"] is JValue v && v.Type == JTokenType.Boolean && (bool)v;
+
         /// <summary>The ids this project had before (builder.json "previousIds"): an export replaces a mod installed under one.</summary>
         public List<string> PreviousIds =>
             builder["previousIds"] is JArray a ? a.Select(t => t.ToString()).ToList() : new List<string>();
@@ -420,7 +434,7 @@ namespace GoF2Remake.Modding
                 foreach (var f in Directory.GetFiles(Folder, "*", SearchOption.AllDirectories))
                 {
                     string ext = Path.GetExtension(f).ToLowerInvariant();
-                    if (ext != ".json" && ext != ".gof2event" && ext != ".gof2netevent" && ext != ".gof2quest") continue;
+                    if (ext != ".json" && ext != ".gof2event" && ext != ".gof2netevent" && ext != ".gof2mission" && ext != ".gof2quest") continue;
                     if (Path.GetFileName(f) == ModManifest.FileName || Path.GetFileName(f) == BuilderFile) continue;
                     string text = File.ReadAllText(f), changed = re.Replace(text, id + ":");
                     if (changed != text) File.WriteAllText(f, changed);
@@ -435,6 +449,54 @@ namespace GoF2Remake.Modding
                 return Load(folder);
             }
             catch (Exception e) { error = e.Message; Debug.LogWarning($"Mod Builder: changing {old}'s id failed: {e.Message}"); return null; }
+        }
+
+        // ---- import -------------------------------------------------------------------------------------------
+
+        /// <summary>The project of the mod 'id', or null (the projects page asks before replacing it).</summary>
+        public static ModProject WithId(string id) =>
+            List().FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>A mod made elsewhere as a project: every file of 'src' (an installed mod, a downloaded .zip; a zip's top
+        /// folder left out, ModSource) copied as it is under 'root' (ModProject.Root, read on the main thread), in a folder
+        /// named after the mod's id 'id', or into 'replaceFolder' (the project of that id, removed only once the copy is
+        /// complete). The mod keeps its id, so the project's Export replaces the installed copy. No Unity calls: runs on a
+        /// worker thread (a mod of models and textures is hundreds of MB). Returns the project's folder for Load, or null
+        /// with the error.</summary>
+        public static string CopyMod(ModSource src, string root, string id, string replaceFolder, out string error)
+        {
+            error = null;
+            string tmp = Path.Combine(root, "." + id + ".import");
+            try
+            {
+                if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+                Directory.CreateDirectory(tmp);
+                string inside = Path.GetFullPath(tmp) + Path.DirectorySeparatorChar;
+                foreach (string rel in src.Files)
+                {
+                    if (string.Equals(rel, BuilderFile, StringComparison.OrdinalIgnoreCase)) continue;   // the builder's own
+                    string dst = Path.GetFullPath(Path.Combine(tmp, rel));
+                    if (!dst.StartsWith(inside, StringComparison.OrdinalIgnoreCase)) continue;   // an archive's "../" path
+                    Directory.CreateDirectory(Path.GetDirectoryName(dst));
+                    File.WriteAllBytes(dst, src.ReadBytes(rel));
+                }
+                // Its id stays its own (KeepsId); the rest of builder.json the builder fills in as it is used.
+                File.WriteAllText(Path.Combine(tmp, BuilderFile), new JObject { ["keepId"] = true }.ToString(Formatting.Indented));
+                string target = replaceFolder ?? Path.Combine(root, id);
+                for (int i = 2; replaceFolder == null && Directory.Exists(target); i++) target = Path.Combine(root, $"{id}_{i}");
+                if (replaceFolder != null && Directory.Exists(replaceFolder)) Directory.Delete(replaceFolder, true);
+                Directory.Move(tmp, target);
+                Directory.SetLastWriteTimeUtc(target, DateTime.UtcNow);   // the newest project: the list's top
+                Debug.Log($"Mod Builder: imported the mod \"{id}\" from {src.Location} into {target}");
+                return target;
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+                Debug.LogWarning($"Mod Builder: importing {id} from {src.Location} failed: {e.Message}");
+                try { if (Directory.Exists(tmp)) Directory.Delete(tmp, true); } catch { }
+                return null;
+            }
         }
 
         /// <summary>Deletes the project's folder.</summary>
@@ -452,6 +514,25 @@ namespace GoF2Remake.Modding
         public ModInfo InstalledMod =>
             ModManager.Installed.FirstOrDefault(m => string.Equals(m.Id, Id, StringComparison.OrdinalIgnoreCase))
             ?? ModManager.Installed.FirstOrDefault(m => m.Id != null && PreviousIds.Contains(m.Id, StringComparer.OrdinalIgnoreCase));
+
+        /// <summary>The files Export puts into the mod (full path, path in the mod): not builder.json, the skin templates or a
+        /// .tmp file.</summary>
+        public IEnumerable<(string path, string rel)> ExportedFiles()
+        {
+            foreach (var f in Directory.GetFiles(Folder, "*", SearchOption.AllDirectories))
+            {
+                string rel = f.Substring(Folder.Length).TrimStart('/', '\\').Replace('\\', '/');
+                if (rel == BuilderFile || rel.EndsWith(".tmp") || rel.StartsWith(TemplatesFolder + "/")) continue;
+                yield return (f, rel);
+            }
+        }
+
+        /// <summary>The mod's size: its exported files together, before the zip compresses them (bytes; 0 when unreadable).</summary>
+        public long ModSize()
+        {
+            try { return ExportedFiles().Sum(f => new FileInfo(f.path).Length); }
+            catch (Exception) { return 0; }
+        }
 
         /// <summary>Zips the mod's files (not builder.json) into the Mods folder as "<name>.zip" (the project's name as it is
         /// now), replacing an installed mod with its id in its own folder (it keeps its on / off and load order), or one under
@@ -472,10 +553,8 @@ namespace GoF2Remake.Modding
                 Directory.CreateDirectory(folder);
                 string target = Path.Combine(folder, ZipName(folder)), tmp = target + ".tmp";
                 using (var zip = new ZipArchive(File.Create(tmp), ZipArchiveMode.Create))
-                    foreach (var f in Directory.GetFiles(Folder, "*", SearchOption.AllDirectories))
+                    foreach (var (f, rel) in ExportedFiles())
                     {
-                        string rel = f.Substring(Folder.Length).TrimStart('/', '\\').Replace('\\', '/');
-                        if (rel == BuilderFile || rel.EndsWith(".tmp") || rel.StartsWith(TemplatesFolder + "/")) continue;   // not the skin templates
                         var e = zip.CreateEntry(rel, System.IO.Compression.CompressionLevel.Optimal);
                         using var dst = e.Open();
                         using var src = File.OpenRead(f);
@@ -865,7 +944,8 @@ namespace GoF2Remake.Modding
             if (f != null) try { File.Delete(f); } catch { }
         }
 
-        /// <summary>events/&lt;name&gt;.gof2quest for every quest; a builder quest file no longer in the list goes.</summary>
+        /// <summary>events/&lt;name&gt;.gof2mission for every mission; a builder mission file no longer in the list goes, and so does
+        /// the old .gof2quest a mission was read from (written back as a .gof2mission).</summary>
         void WriteQuests()
         {
             string dir = Path.Combine(Folder, ProjectQuest.Folder);
@@ -875,6 +955,8 @@ namespace GoF2Remake.Modding
             foreach (var f in Directory.GetFiles(dir, "*." + ProjectQuest.Extension))
                 if (!Quests.Any(q => string.Equals(q.Name, Path.GetFileNameWithoutExtension(f), StringComparison.OrdinalIgnoreCase)))
                     try { File.Delete(f); } catch { }
+            foreach (var f in Directory.GetFiles(dir, "*." + ProjectQuest.LegacyExtension))
+                try { File.Delete(f); } catch { }
         }
 
         /// <summary>The event graphs made in the Unity Editor (events/*.gof2event): listed, not edited by the builder.</summary>
@@ -1056,6 +1138,17 @@ namespace GoF2Remake.Modding
             Section("icons")[s.Ref] = new JObject { ["file"] = file, ["key"] = key };
         }
 
+        /// <summary>The turn the builder's icon of a ship is drawn with (0 / 90 / 180 / 270 degrees about its up axis, the Ship
+        /// tab's buttons beside Recreate icon), for a model whose nose doesn't come out at the bottom left.</summary>
+        public int IconTurn(ProjectShip s) => Section("iconTurns")[s.Ref] is JValue v && v.Type == JTokenType.Integer ? (int)v : 0;
+
+        public void SetIconTurn(ProjectShip s, int degrees)
+        {
+            degrees = ((degrees % 360) + 360) % 360;
+            if (degrees == 0) Section("iconTurns").Remove(s.Ref);
+            else Section("iconTurns")[s.Ref] = degrees;
+        }
+
         public bool Flag(string key, bool fallback) => builder[key] is JValue v && v.Type == JTokenType.Boolean ? (bool)v : fallback;
         public void SetFlag(string key, bool on) => builder[key] = on;
 
@@ -1076,6 +1169,8 @@ namespace GoF2Remake.Modding
             if (l[from] != null) { l[to] = l[from]; l.Remove(from); }
             var ic = Section("icons");
             if (ic[from] != null) { ic[to] = ic[from]; ic.Remove(from); }
+            var it = Section("iconTurns");
+            if (it[from] != null) { it[to] = it[from]; it.Remove(from); }
             if (LastShip == from) LastShip = to;
         }
     }
@@ -1199,6 +1294,30 @@ namespace GoF2Remake.Modding
 
         static string SlotKey(int kind) => kind == 0 ? "primary" : kind == 1 ? "secondary" : kind == 2 ? "turret" : "equipment";
 
+        /// <summary>ships.json "addParts": the original's additive layers beside the hull (CustomAddPart: model, role,
+        /// texture), in the order they are listed.</summary>
+        public List<(string model, string role, string texture)> AddParts =>
+            json["addParts"] is JArray a
+                ? a.OfType<JObject>().Select(o => ((string)o["model"], (string)o["role"], (string)o["texture"])).ToList()
+                : new List<(string, string, string)>();
+
+        /// <summary>Adds an add part (CustomAddPart.Roles); 'texture' null = the game's material for the role.</summary>
+        public void AddPart(string role, string model, string texture = null)
+        {
+            if (!(json["addParts"] is JArray a)) json["addParts"] = a = new JArray();
+            var o = new JObject { ["model"] = model, ["role"] = role };
+            if (!string.IsNullOrEmpty(texture)) o["texture"] = texture;
+            a.Add(o);
+        }
+
+        /// <summary>Removes the add part at 'index' (the list goes when it is empty).</summary>
+        public void RemovePart(int index)
+        {
+            if (!(json["addParts"] is JArray a) || index < 0 || index >= a.Count) return;
+            a.RemoveAt(index);
+            if (a.Count == 0) json.Remove("addParts");
+        }
+
         public int MountCount(int slotType) => Mounts.Count(m => m.slotType == slotType);
 
         // ---- a customizable ship (ModShipKits) ----
@@ -1236,7 +1355,7 @@ namespace GoF2Remake.Modding
         /// <summary>The ship flies a kit: its model's own fields go.</summary>
         public void UseKit(string kit, string kitType)
         {
-            foreach (var k in new[] { "model", "modelLength", "modelYaw", "modelPitch", "modelRoll", "modelOffset", "materials", "hangarHeight", "engineGlowRadius" })
+            foreach (var k in new[] { "model", "modelLength", "modelYaw", "modelPitch", "modelRoll", "modelOffset", "materials", "hangarHeight", "engineGlowRadius", "addParts" })
                 json.Remove(k);
             Kit = kit;
             KitType = kitType;
@@ -1254,7 +1373,7 @@ namespace GoF2Remake.Modding
         public void UseGameModel(string assembly, ShipData from, IEnumerable<WeaponMount> mounts, int race = -1)
         {
             Model = GameModels.Ref(assembly);
-            foreach (var k in new[] { "modelLength", "modelYaw", "modelPitch", "modelRoll", "modelOffset", "materials", "hangarHeight", "engineGlowRadius" })
+            foreach (var k in new[] { "modelLength", "modelYaw", "modelPitch", "modelRoll", "modelOffset", "materials", "hangarHeight", "engineGlowRadius", "addParts" })
                 json.Remove(k);
             Mounts.Clear();
             if (mounts != null) Mounts.AddRange(mounts.Select(Copy));

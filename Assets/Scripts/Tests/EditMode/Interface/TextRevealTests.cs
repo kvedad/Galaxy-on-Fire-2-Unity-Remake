@@ -9,7 +9,9 @@
 // before the first mention on the page, an equipment category's icon ("mines" only as "mines"), "core" and "container" in
 // English, none for "plasma array"; Arabic / Hebrew / Devanagari pages fade in whole, CJK doesn't. The tint colours are
 // TextReveal's documented ones (Terran FF8C1A, Vossk 45E06A, people FFD37A...). The icons must be in the sprite asset
-// Resources/Sprite Assets/gof2_text_icons (GoF2 > Build > Text Icons).
+// Resources/Sprite Assets/gof2_text_icons (GoF2 > Build > Text Icons); a name whose icon the atlas lacks gets none, never
+// a <sprite> tag naming a missing sprite (TextCore prints that as text): a mod's ship blueprint item is named as its ship
+// and was given "item_" + its own number (a player's German lounge: "<sprite=... name="item_279" tint=1>Betty").
 
 using System.Collections.Generic;
 using System.Linq;
@@ -62,7 +64,19 @@ namespace GoF2Remake.Tests
             return label.text;
         }
 
-        static readonly Color32 Gold = new Color32(0xFF, 0xD3, 0x7A, 0xFF), Aqua = new Color32(0x7F, 0xE3, 0xF0, 0xFF),
+        [Test]
+        public void ANoteShownBeforeItsStyleResolvesIsNotBlack()
+        {
+            // A player's report (2026-10-24): the courier's thanks and the pirate base's 434 opened as the station loaded,
+            // the label still at the initial colour (opaque black), and every plain letter was tagged black.
+            string page = "*Sigh* Mr. Maxwell? You finished your mission.\n\nMission accomplished!";
+            string text = Rendered(page);
+            StringAssert.DoesNotContain("<color=#000000", text);
+            StringAssert.Contains("You finished your mission.\n\nMission accomplished!", text, "plain letters take the label's own colour");
+            StringAssert.Contains("<color=#FFD37AFF>Maxwell</color>", text, "the tints stay");
+        }
+
+        static readonly Color32 Gold =new Color32(0xFF, 0xD3, 0x7A, 0xFF), Aqua = new Color32(0x7F, 0xE3, 0xF0, 0xFF),
             Pink = new Color32(0xF0, 0xA8, 0xDC, 0xFF), Terran = new Color32(0xFF, 0x8C, 0x1A, 0xFF), Vossk = new Color32(0x45, 0xE0, 0x6A, 0xFF),
             Midorian = new Color32(0x9A, 0xA0, 0xA6, 0xFF), Void = new Color32(0xA7, 0x7B, 0xFF, 0xFF);
 
@@ -361,6 +375,54 @@ namespace GoF2Remake.Tests
                 Assert.IsTrue(names.Contains(n), n);
             for (int i = 0; i < GameNames.OriginalItems; i++) Assert.IsTrue(names.Contains($"item_{i:000}"), $"item_{i:000}");
             for (int i = 0; i < GameNames.OriginalShips; i++) Assert.IsTrue(names.Contains($"ship_{i:000}"), $"ship_{i:000}");
+        }
+    }
+
+    /// <summary>The icons with mods on: only sprites the atlas has (CLAUDE.md "Mods", Mod blueprints: a ship blueprint's
+    /// hidden item reads as its ship).</summary>
+    public class TextRevealModIconTests : SavesModsTest
+    {
+        static string[] Icons(string s) => (string[])DataUiTestKit.CallStatic(typeof(TextReveal), "Icons", s);
+
+        void ModOn()
+        {
+            string dir = WriteMod("icons", "t_icons", "1.0", "",
+                ("items.json", "[ { 'id': 'gun', 'base': 2, 'name': 'Zapper Gun' } ]"),
+                ("ships.json", "[ { 'id': 'hawk', 'model': 'h.glb', 'name': 'Hawk', 'price': 990000 } ]"),
+                ("blueprints.json", "[ { 'id': 'betty_bp', 'ship': 0, 'ingredients': [ { 'item': 155 } ] } ]"));
+            WriteFile(dir, "h.glb", Dummy);
+            ScanAndEnable("t_icons");
+            Assert.IsFalse(Installed("t_icons").Broken, AllMessages(Installed("t_icons")));
+        }
+
+        [TestCase("en", "I offer you 1x Hawk for only 990,000$. Trading in your Betty makes it 973,800$.")]
+        [TestCase("de", "Ich biete Ihnen 1x Hawk für nur 990.000$ an. Mit deiner Betty in Zahlung macht das 973.800$.")]
+        public void AShipBlueprintsItemGivesNoMissingSprite(string language, string page)
+        {
+            using var text = new DataUiTestKit.TextLanguage(language);
+            ModOn();
+            // The rules as built with the mod on (the old code kept rules built before the mods for good).
+            typeof(TextReveal).GetField("iconRules", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                .SetValue(null, null);
+            var db = Database.Load();
+            Assert.AreEqual(GameNames.Ship(0), GameNames.Item(db.Items.Count - 1), "the blueprint's item reads as Betty (the test's premise)");
+            var rules = (System.Collections.IList)DataUiTestKit.CallStatic(typeof(TextReveal), "IconRules");
+            foreach (var r in rules)
+            {
+                string word = (string)r.GetType().GetField("word").GetValue(r), sprite = (string)r.GetType().GetField("sprite").GetValue(r);
+                if (sprite == null) continue;
+                if (sprite.StartsWith("item_")) Assert.Less(int.Parse(sprite.Substring(5)), GameNames.OriginalItems, $"'{word}' -> {sprite}: not in the atlas");
+                if (sprite.StartsWith("ship_")) Assert.Less(int.Parse(sprite.Substring(5)), GameNames.OriginalShips, $"'{word}' -> {sprite}: not in the atlas");
+            }
+            var icons = Icons(page);
+            Assert.AreEqual("ship_000", icons[page.IndexOf("Betty", System.StringComparison.Ordinal)], "the game ship's own icon");
+            Assert.IsNull(icons[page.IndexOf("Hawk", System.StringComparison.Ordinal)], "a mod ship: no icon in the atlas, no tag");
+            foreach (var icon in icons.Where(i => i != null))
+            {
+                if (icon.StartsWith("item_")) Assert.Less(int.Parse(icon.Substring(5)), GameNames.OriginalItems, icon);
+                if (icon.StartsWith("ship_")) Assert.Less(int.Parse(icon.Substring(5)), GameNames.OriginalShips, icon);
+            }
+            Assert.AreEqual("item_002", Icons("Fire the Zapper Gun.")[9], "a mod item: its base's icon");
         }
     }
 }

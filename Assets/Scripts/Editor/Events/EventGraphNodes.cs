@@ -79,7 +79,8 @@ namespace GoF2Remake.EditorTools
     {
         public const string Description = "Description", MissionTitle = "MissionTitle", MissionOffer = "MissionOffer",
             MissionClient = "MissionClient", MissionReward = "MissionReward", MissionStations = "MissionStations",
-            MinPlayers = "MinPlayers", MaxPlayers = "MaxPlayers", Kind = "Kind", StartsWhen = "StartsWhen";
+            MinPlayers = "MinPlayers", MaxPlayers = "MaxPlayers", Kind = "Kind", StartsWhen = "StartsWhen", MissionChance = "MissionChance",
+            MissionTakers = "MissionTakers";
         protected override bool HasIn => false;
 
         protected override void OnDefineOptions(IOptionDefinitionContext context)
@@ -87,12 +88,12 @@ namespace GoF2Remake.EditorTools
             context.AddOption<string>(Description).WithTooltip("What the event is (written as # lines at the top of the script).")
                 .AsTextArea(2, 8).Delayed().Build();
             context.AddOption<EventKind>(Kind).WithTooltip("Event: started by /event (with a Mission title it is offered as a bar mission, as " +
-                "before). Bar Mission: offered by a Space Lounge visitor (multiplayer squads and single player). Quest: single player, like the " +
+                "before). Bar Mission: offered by a Space Lounge visitor (multiplayer squads and single player). Story Mission: single player, like the " +
                 "story: starts by itself when Starts when holds, lasts across saves (Checkpoint), shows its Mission title and objective in the " +
                 "Missions window; Mission Complete finishes it for good, Mission Failed loads the last save.").Build();
-            context.AddOption<string>(StartsWhen).WithDisplayName("Starts when").WithTooltip("A quest: the condition that starts it, checked " +
+            context.AddOption<string>(StartsWhen).WithDisplayName("Starts when").WithTooltip("A story mission: the condition that starts it, checked " +
                 "every second in a game (an expression: \"campaign >= 20\", \"visited(Kepler Prime)\", \"quest(first_contact) == 2\", " +
-                "\"credits > 50000\"). Empty: at once; \"never\": only by another graph's Start Quest.").Delayed().Build();
+                "\"credits > 50000\"). Empty: at once; \"never\": only by another graph's Start Mission.").Delayed().Build();
             context.AddOption<string>(MissionTitle).WithDisplayName("Mission title").WithTooltip("Set it to offer this event as a bar " +
                 "mission: a visitor in the multiplayer Space Lounge offers it, and it runs for the squad that takes it (its selectors, " +
                 "counts, triggers and scoreboard cover only them). Empty: only /event starts it, for everyone.").Delayed().Build();
@@ -105,6 +106,12 @@ namespace GoF2Remake.EditorTools
                 "across the team.").Delayed().Build();
             context.AddOption<string>(MissionStations).WithDisplayName("Offered at").WithTooltip("Stations whose bars offer it " +
                 "(numbers or names, commas between). Empty: every station.").Delayed().Build();
+            context.AddOption<float>(MissionChance).WithDisplayName("Offer chance %").WithDefaultValue(35f).WithTooltip("How many of those " +
+                "stations' bars offer it, in percent. Each station decides for 30 minutes (docking again doesn't roll it anew), and once " +
+                "a team takes it there it isn't offered there again for 30 minutes. 100: every bar, always.").Delayed().Build();
+            context.AddOption<EventMissionTakers>(MissionTakers).WithDisplayName("Who can take it").WithTooltip("One In Universe: while a " +
+                "squad is on it, no bar anywhere offers it to another squad. One Per Station: a squad taking it at a station takes it out of " +
+                "that bar for 30 minutes; other stations still offer it. Anyone: any number of squads, at the same station too.").Build();
             context.AddOption<float>(MinPlayers).WithDisplayName("Min pilots").WithDefaultValue(1f).WithTooltip("The squad needs at least this many pilots.").Delayed().Build();
             context.AddOption<float>(MaxPlayers).WithDisplayName("Max pilots").WithDefaultValue(4f).WithTooltip("And at most this many.").Delayed().Build();
         }
@@ -117,8 +124,8 @@ namespace GoF2Remake.EditorTools
         public const string Name = "Name";
 
         protected override void OnDefineOptions(IOptionDefinitionContext context) =>
-            context.AddOption<string>(Name).WithTooltip("Optional: the checkpoint's name (one word; empty: the node's id). A save keeps the quest " +
-                "as it is here (its variables, objective, target, quest orbits); loading it goes on from here: the On handlers and the Run In " +
+            context.AddOption<string>(Name).WithTooltip("Optional: the checkpoint's name (one word; empty: the node's id). A save keeps the mission " +
+                "as it is here (its variables, objective, target, mission orbits); loading it goes on from here: the On handlers and the Run In " +
                 "Parallel / Every blocks before it start again, so do their music, waypoint, respawn and travel commands. Only on the main " +
                 "flow from Start (not inside a block). Renaming it later sends old saves back to the start.").Delayed().Build();
     }
@@ -138,27 +145,27 @@ namespace GoF2Remake.EditorTools
     }
 
     [Serializable]
-    [Node("Event", null, "Quest Orbit")]
+    [Node("Event", null, "Mission Orbit")]
     public class EventQuestOrbitNode : EventFlowNode
     {
         public const string OrbitIn = "Orbit", On = "On";
 
         protected override void OnDefineOptions(IOptionDefinitionContext context) =>
-            context.AddOption<bool>(On).WithDefaultValue(true).WithTooltip("On: the orbit is the quest's from the next arrival, no normal traffic " +
-                "is built there (like a story orbit), until off or the quest's end. Off: normal again.").Build();
+            context.AddOption<bool>(On).WithDefaultValue(true).WithTooltip("On: the orbit is the mission's from the next arrival, no normal traffic " +
+                "is built there (like a story orbit), until off or the mission's end. Off: normal again.").Build();
 
         protected override void DefineInputs(IPortDefinitionContext context) =>
             context.AddInputPort<Orbit>(OrbitIn).WithTooltip("The orbit (wire Get Orbit in).").Build();
     }
 
     [Serializable]
-    [Node("Event", null, "Start Quest")]
+    [Node("Event", null, "Start Mission")]
     public class EventStartQuestNode : EventFlowNode
     {
         public const string Quest = "Quest";
 
         protected override void DefineInputs(IPortDefinitionContext context) =>
-            TextIn(context, Quest, "", "The quest to start beside this one (its graph's file name), unless it is under way or done. Single player.");
+            TextIn(context, Quest, "", "The story mission to start beside this one (its graph's file name), unless it is under way or done. Single player.");
     }
 
     [Serializable]
@@ -492,6 +499,30 @@ namespace GoF2Remake.EditorTools
             context.AddInputPort<Orbit>(OrbitIn).WithTooltip("The waypoint's orbit (wire Get Orbit in).").Build();
             TextIn(context, At, "", "Game coordinates \"x y z\" (/pos shows yours): a lockable Waypoint the autopilot flies to; reaching it clears it.");
         }
+    }
+
+    [Serializable]
+    [Node("Event", null, "Open Wormhole")]
+    public class EventOpenWormholeNode : EventCommandNode
+    {
+        public const string OrbitIn = "Orbit", At = "At", Destination = "Destination", Seconds = "Seconds";
+
+        protected override void DefineInputs(IPortDefinitionContext context)
+        {
+            PlayersIn(context);
+            context.AddInputPort<Orbit>(OrbitIn).WithTooltip("The orbit the wormhole opens in (wire Get Orbit in).").Build();
+            TextIn(context, At, "", "Game coordinates \"x y z\" in that orbit (/pos shows yours); empty = 4 km out, beside the launch path. Keep it 2 km (40000) clear of the line straight ahead of the station (x 0, y 0): launching ships fly along it.");
+            context.AddInputPort<Orbit>(Destination).WithTooltip("Where flying in takes them (wire Get Orbit in: a station, \"void\", or a " +
+                "wired number such as a variable). A stream-out arrival there, with a wormhole closing behind.").Build();
+            NumberIn(context, Seconds, 0f, "Open this many seconds (0 = until Close Wormhole or the event's end). One per player: a new one replaces it.");
+        }
+    }
+
+    [Serializable]
+    [Node("Event", null, "Close Wormhole")]
+    public class EventCloseWormholeNode : EventCommandNode
+    {
+        protected override void DefineInputs(IPortDefinitionContext context) => PlayersIn(context);
     }
 
     [Serializable]
@@ -959,8 +990,14 @@ namespace GoF2Remake.EditorTools
     [Node("Commands", null, "Play Sound")]
     public class EventPlaySoundNode : EventCommandNode
     {
-        public const string Sound = "Sound";
-        protected override void OnDefineOptions(IOptionDefinitionContext context) => context.AddOption<EventSound>(Sound).Build();
+        public const string Sound = "Sound", ModSound = "ModSound";
+
+        protected override void OnDefineOptions(IOptionDefinitionContext context)
+        {
+            context.AddOption<EventSound>(Sound).Build();
+            context.AddOption<string>(ModSound).WithDisplayName("Mod sound").WithTooltip("Optional: a mod's sound instead (its sounds/<name>.ogg " +
+                "file's name, a mod that is on); empty: the Sound above.").Delayed().Build();
+        }
         protected override void DefineInputs(IPortDefinitionContext context) => PlayersIn(context);
     }
 

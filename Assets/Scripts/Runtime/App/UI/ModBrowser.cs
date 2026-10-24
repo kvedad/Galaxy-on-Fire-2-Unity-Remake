@@ -28,7 +28,10 @@ namespace GoF2Remake.UI
         readonly Label count, empty, note;
         readonly VisualElement preview, detail;
         readonly Label name, meta, description, problems;
-        readonly Button toggle, earlier, later, delete;
+        readonly Button toggle, earlier, later, delete, edit;
+        /// <summary>Edit in Mod Builder: the selected mod as a Mod Builder project (MainMenu: ModBuilderProjects.ImportInstalled);
+        /// the button shows only when this is set.</summary>
+        public Action<ModInfo> EditInBuilder;
         readonly Action<string, string, Action> ask;
         readonly Action<string, string> notice;
         bool importing;
@@ -95,13 +98,18 @@ namespace GoF2Remake.UI
             Add(toggle, InputGlyph.Pad(PadButton.X), "mods-pad-x");   // X / square, in the style of the controller in use
             earlier = ActionButton(actions, T("modsEarlier", "Earlier"), () => Move(-1));
             later = ActionButton(actions, T("modsLater", "Later"), () => Move(1));
+            edit = ActionButton(actions, T("modsEditInBuilder", "Edit in Mod Builder"), () =>
+            {
+                var mod = selected != null ? ModManager.Find(selected) : null;
+                if (mod != null) EditInBuilder?.Invoke(mod);
+            });
             delete = ActionButton(actions, T("modsDelete", "Delete"), AskDelete, "mods-delete");
 
             var footer = Add(Panel, new VisualElement(), "mods-footer");
             note = Add(footer, new Label(), "mods-note");
             if (!Application.isMobilePlatform) ActionButton(footer, T("modsOpenFolder", "Open mods folder"),
                 () => ModManager.OpenFolder(selected != null ? ModManager.Find(selected) : null), "mods-footer-button");   // the selected mod's folder
-            if (ModImport.Available) ActionButton(footer, T("modsImport", "Import mod"), Import, "mods-footer-button");
+            if (ModImport.Available) ActionButton(footer, T("modsImport", "Import mod"), Import, "mods-footer-button").AddToClassList("mods-import");
             ActionButton(footer, T("modsRefresh", "Refresh"), () => { ModManager.Scan(); Rebuild(); }, "mods-footer-button");
             // When something looks wrong after a mod changed: the cached textures, hangar shadows and unpacked zips are made again.
             if (rebuildCache != null) ActionButton(footer, T("modsRebuildCache", "Rebuild cache"), rebuildCache, "mods-footer-button");
@@ -161,8 +169,8 @@ namespace GoF2Remake.UI
                 rows[m.Id] = row;
             }
             empty.text = ModImport.Available && Application.isMobilePlatform
-                ? string.Format(T("modsEmptyImport", "No mods installed. Press Import mod and pick a mod's .zip file, or put it into the Mods folder:\n{0}\nthen press Refresh."), Shown(ModManager.MainFolder))
-                : string.Format(T("modsEmpty", "No mods installed. Put a mod's folder or .zip into the Mods folder:\n{0}\nthen press Refresh."), Shown(ModManager.MainFolder));
+                ? string.Format(T("modsEmptyImport", "No mods installed. Press Import mod, or put a mod into:\n{0}\nthen press Refresh."), Shown(ModManager.MainFolder))
+                : string.Format(T("modsEmpty", "No mods installed. Put a mod into:\n{0}\nthen press Refresh."), Shown(ModManager.MainFolder));
             empty.style.display = mods.Count == 0 ? DisplayStyle.Flex : DisplayStyle.None;
             if (selected == null || !rows.ContainsKey(selected)) selected = mods.FirstOrDefault()?.Id;
             Refresh();
@@ -204,7 +212,7 @@ namespace GoF2Remake.UI
             }
             int enabled = ModManager.Installed.Count(m => ModManager.IsEnabled(m.Id));
             count.text = string.Format(T("modsCount", "{0} installed  ·  {1} on"), ModManager.Installed.Count, enabled);
-            note.text = T("modsNote", "Mods only change your own games: they apply when a game starts or loads. A mod lower in the list wins where two change the same thing.")
+            note.text = T("modsNote", "Mods apply when a game starts or loads. Lower in the list wins.")
                         + (Application.isMobilePlatform ? "\n" + Shown(ModManager.MainFolder) : "");   // no folder button on a phone: where to copy them
 
             var mod = selected != null ? ModManager.Find(selected) : null;
@@ -223,8 +231,8 @@ namespace GoF2Remake.UI
                 description.text += "\n\n" + T("modsCredits", "Credits").ToUpperInvariant() + "\n" + mod.Manifest.Credits;
             var lines = new List<string>();
             bool isOn = ModManager.IsEnabled(mod.Id);
-            if (mod.Broken) lines.AddRange(mod.Errors.Select(e => "✖ " + e));
-            else if (isOn && ModManager.InactiveReason(mod) is string why) lines.Add("✖ " + why);
+            if (mod.Broken) lines.AddRange(mod.Errors.Select(e => "× " + e));
+            else if (isOn && ModManager.InactiveReason(mod) is string why) lines.Add("× " + why);
             if (mod.Manifest?.dependencies.Count > 0)
                 lines.Add(string.Format(T("modsNeeds", "Needs: {0}"), string.Join(", ", mod.Manifest.dependencies.Select(d =>
                 {
@@ -244,6 +252,8 @@ namespace GoF2Remake.UI
             toggle.text = (isOn ? T("modsTurnOff", "Turn off") : T("modsTurnOn", "Turn on")).ToUpperInvariant();
             toggle.SetEnabled(!mod.Broken || isOn);
             delete.SetEnabled(mod.Source != null);
+            edit.style.display = EditInBuilder != null ? DisplayStyle.Flex : DisplayStyle.None;
+            edit.SetEnabled(mod.Manifest != null && mod.Source != null);
             toggle.EnableInClassList("mods-toggle--on", isOn);
             var ids = ModManager.Installed.Where(m => ModManager.IsEnabled(m.Id)).Select(m => m.Id).ToList();
             int i = ids.IndexOf(mod.Id);
@@ -279,12 +289,14 @@ namespace GoF2Remake.UI
         {
             if (importing) return;
             importing = true;
+            var busy = Panel.Q<Button>(className: "mods-import");
+            UiBusy.Mark(busy, true);   // the picker and the copy can take a while (docs/UI-DESIGN.md "Waiting")
             var poll = ModImport.Pick();
             ModImport.Picked picked = null;
             Panel.schedule.Execute(() =>
             {
                 picked = poll();
-                if (picked != null) { importing = false; Picked(picked); }
+                if (picked != null) { importing = false; UiBusy.Mark(busy, false); Picked(picked); }
             }).Every(200).Until(() => picked != null);
         }
 
@@ -293,11 +305,18 @@ namespace GoF2Remake.UI
             string title = T("modsImport", "Import mod");
             if (p.cancelled) return;
             if (p.error != null) { notice(title, string.Format(T("modsImportFailed", "The mod couldn't be imported: {0}"), p.error)); return; }
+            // A mod for the original game (.aem / .aei, no mod.json) is no mod of the remake's: the Mod Builder makes one of it.
+            if (OriginalModImport.Looks(p.path))
+            {
+                ModImport.Discard(p.path);
+                notice(title, T("modsImportOriginal", "That's a mod for the original game (its .aem / .aei files). The Mod Builder makes a mod of it: Mod Builder > Import mod > From a file..."));
+                return;
+            }
             var manifest = ModImport.Inspect(p.path, out string error);
             if (manifest == null)
             {
                 ModImport.Discard(p.path);
-                notice(title, T("modsImportNotMod", "That file isn't a mod. Pick a mod's .zip file, with its mod.json inside.")
+                notice(title, T("modsImportNotMod", "That file isn't a mod: pick a mod's .zip with mod.json inside.")
                               + "\n(" + p.name + ": " + error + ")");
                 return;
             }

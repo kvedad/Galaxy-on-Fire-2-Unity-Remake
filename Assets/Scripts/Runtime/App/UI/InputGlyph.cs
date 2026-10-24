@@ -20,11 +20,18 @@ namespace GoF2Remake.UI
 
     public static class InputGlyph
     {
-        /// <summary>The button hints option (Settings.InputHints): hides a HUD's hint row container while it is off.</summary>
+        /// <summary>The button hints option (Settings.InputHints): hides a screen's hint row container while it is off (the HUD,
+        /// the station, the star map; the menus' prompt bars read it in MenuKeys.Bar, the orbit views in OrbitViewUi).</summary>
         public static void TrackHintsOption(VisualElement hints)
         {
             if (hints == null) return;
-            void Apply() => hints.EnableInClassList("hints--off", !Settings.InputHints);
+            void Apply()
+            {
+                hints.EnableInClassList("hints--off", !Settings.InputHints);
+                // Inline too: a screen's own rules for the row (".hangar-open .station-hints", with the input classes) beat the
+                // class, so the hangar window kept its hints with the option off.
+                hints.style.display = Settings.InputHints ? new StyleEnum<DisplayStyle>(StyleKeyword.Null) : DisplayStyle.None;
+            }
             Apply();
             Settings.Changed += Apply;
             hints.RegisterCallback<DetachFromPanelEvent>(_ => Settings.Changed -= Apply);
@@ -93,6 +100,32 @@ namespace GoF2Remake.UI
             button.text = "";
             button.Add(label);
             return label;
+        }
+
+        /// <summary>
+        /// Rework (docs/UI-DESIGN.md "Button prompts"): a controller glyph inside a button, before its label, shown only while
+        /// a controller is the input (GoF2InputGlyphs.uss .pad-only, under the root's input-gamepad). 'focusOnly': only on
+        /// the focused / selected button (A, which presses whichever has the focus); its space is kept meanwhile, so the
+        /// label doesn't move as the focus does. B for a Back / No / Cancel button is always shown (B always presses it).
+        /// The text moves into a label (WithGlyphs): set it with SetText from then on. Called again: nothing new.
+        /// </summary>
+        public static Label PadPrompt(Button button, PadButton pad, bool focusOnly = false)
+        {
+            if (button == null) return null;
+            if (button.Q(className: "pad-only") != null) return button.Q<Label>(className: "glyph-button-label");
+            var g = Pad(pad);
+            g.AddToClassList("pad-only");
+            if (focusOnly) g.AddToClassList("pad-focus-only");
+            return WithGlyphs(button, g);
+        }
+
+        /// <summary>A button's text, also once PadPrompt / WithGlyphs moved it into a label.</summary>
+        public static void SetText(Button button, string text)
+        {
+            if (button == null) return;
+            var label = button.Q<Label>(className: "glyph-button-label");
+            if (label != null) label.text = text;
+            else button.text = text;
         }
 
         static Label Text(string text, string cls)

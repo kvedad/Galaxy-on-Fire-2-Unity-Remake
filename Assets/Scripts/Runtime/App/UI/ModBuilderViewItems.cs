@@ -92,7 +92,7 @@ namespace GoF2Remake.UI
                 itemList.Add(row);
             }
             if (Project.Items.Count == 0)
-                Note(itemList, T("mbNoItems", "No items yet. Make a new one from a game item, or change one of the game's items."));
+                Note(itemList, T("mbNoItems", "No items yet. Make one from a game item, or change a game item."));
         }
 
         void BuildItemPage()
@@ -101,7 +101,7 @@ namespace GoF2Remake.UI
             var it = currentItem;
             if (it == null) { Note(itemPage, T("mbPickItem", "Add an item on the left to start.")); return; }
             JsonButton(itemPage, it.Json, () => { ItemEdited(); RebuildItems(); BuildItemPage(); },
-                       T("mbJsonItemNote", "items.json's fields: also stats / attributes by number, defaultEconomy, fx (projectile, muzzle, impact, turret, trail, sounds), available."));
+                       T("mbJsonItemNote", "Also in items.json: attributes by number, defaultEconomy, fx, available."));
             var db = Database.Shared;
             var original = it.Original >= 0 ? db.Item(it.Original) : null;
             bool isNew = !it.IsOverride;
@@ -122,7 +122,7 @@ namespace GoF2Remake.UI
             if (original != null && it.IsOverride) desc.textEdition.placeholder = GameNames.ItemDescription(it.Original);
             if (original == null)
             {
-                Note(itemPage, T("mbItemOtherMod", "This item is built on another mod's item: its other values are set by hand in items.json."));
+                Note(itemPage, T("mbItemOtherMod", "Built on another mod's item: set its other values in items.json."));
                 return;
             }
 
@@ -154,7 +154,7 @@ namespace GoF2Remake.UI
                         BuildItemPage();
                     }));
             if (it.Icon != null)
-                Act(irow, "✕", () =>
+                Act(irow, "×", () =>
                 {
                     string old = it.Icon;
                     it.Icon = null;
@@ -163,10 +163,21 @@ namespace GoF2Remake.UI
                     RebuildItems();
                     BuildItemPage();
                 }, "mbv-step");
-            Note(itemPage, T("mbIconNote", "180 x 88 like the game's icons, frame and background included (copy one of the game's to start from)."));
-            Int(itemPage, T("mbItemTechLevel", "Tech level (1-10; 11-20 above the game's: sold at tech level 10 stations)"), it.TechLevel ?? original.techLevel, 1, Shop.MaxItemTech, v => { it.TechLevel = Opt(v, original.techLevel); ItemEdited(); });
+            Note(itemPage, T("mbIconNote", "180 x 88 like the game's icons, frame included."));
+            Int(itemPage, T("mbItemTechLevel", "Tech level (11-20 sell at tech level 10 stations)"), it.TechLevel ?? original.techLevel, 1, Shop.MaxItemTech, v => { it.TechLevel = Opt(v, original.techLevel); ItemEdited(); });
             Int(itemPage, T("mbOccurrence", "How often shops stock it (0 never - 90)"), it.Occurrence ?? original.occurrence, 0, 100,
                 v => { it.Occurrence = Opt(v, original.occurrence); ItemEdited(); });
+            // Remake mods: "stock", the units a shop holds (Shop.ModStock); 0 = the amount the game gives its kind of item.
+            IntegerField stockField = null, stockMaxField = null;
+            void Stock()
+            {
+                int min = stockField.value, max = Mathf.Max(min, stockMaxField.value);
+                if (max != stockMaxField.value) stockMaxField.SetValueWithoutNotify(max);
+                it.SetStock(min <= 0 ? (int?)null : min, min <= 0 ? (int?)null : max);
+                ItemEdited();
+            }
+            stockField = Int(itemPage, T("mbStock", "Units a shop stocks (0 = the usual amount for its kind)"), it.StockMin ?? 0, 0, Shop.MaxStock, _ => Stock());
+            stockMaxField = Int(itemPage, T("mbStockMax", "At most, for a random amount"), it.StockMax ?? 0, 0, Shop.MaxStock, _ => Stock());
             IntegerField minField = null, maxField = null;
             void Prices()
             {
@@ -195,7 +206,7 @@ namespace GoF2Remake.UI
                 shown++;
             }
             if (shown == 0) Note(itemPage, T("mbNoStats", "This kind of item has no stats to change."));
-            else Note(itemPage, T("mbStatsNote", "Times are in milliseconds, speeds in game units per ms (20 units = 1 m). A shot's range is its speed x its lifetime."));
+            else Note(itemPage, T("mbStatsNote", "Times in ms, speeds in game units per ms (20 = 1 m); range = speed x lifetime."));
 
             BuildExtraStats(it, original);
             if (original.categoryId == 8) BuildTurretModel(it);
@@ -214,7 +225,7 @@ namespace GoF2Remake.UI
                     BuildItemPage();
                 }), "mbv-danger");
             Note(itemPage, original.TypeId <= 3
-                ? T("mbFitNote", "Mounts it on the ship being built (the Ships tab's Loadout), then press Test fly to fly it against the pirates.")
+                ? T("mbFitNote", "Mounts it on the ship being built; then press Test fly.")
                 : T("mbCommodityNote", "Commodities are bought and sold in shops; they can't be mounted."));
         }
 
@@ -246,20 +257,20 @@ namespace GoF2Remake.UI
             }
             if (item.TypeId <= 2 && Flight.Gun.FiresPlainShots(item))
             {
-                Add(105, 0, 0, 1, T("mbStatNoteMissiles", "Its shots are homing missiles (smoke trail, a rocket's burst): a turret's home on what it aims at, a gun's on the radar's lock."), true);
+                Add(105, 0, 0, 1, T("mbStatNoteMissiles", "Its shots are homing missiles: a turret's home on its aim, a gun's on the lock."), true);
                 Add(106, 1, 1, 12, T("mbStatNoteSalvo", "Shots fired side by side at each trigger pull."));
-                Add(107, 1, 1, 20, T("mbStatNoteSalvoCount", "Salvos per magazine, 'Salvo gap' apart; the reload comes after the last."));
+                Add(107, 1, 1, 20, T("mbStatNoteSalvoCount", "Salvos per magazine, a salvo gap apart; then the reload."));
                 Add(108, 0, 0, 60000);
             }
             if (item.categoryId == 8)
             {
-                Add(16, 0, 0, 1, T("mbStatNoteAuto", "An automatic turret aims and fires at hostile ships by itself; else the player aims it in the turret view."), true);
+                Add(16, 0, 0, 1, T("mbStatNoteAuto", "An automatic turret fires at hostiles by itself; else the player aims it."), true);
                 Add(17, 100, 1, 1000, T("mbStatNoteTurn", "How fast it turns (100 = the game's standard turrets)."));
-                Add(109, (int)Flight.PlayerTurret.AutoRangeUnits, 1000, 1000000, T("mbStatNoteRange", "How far an automatic turret looks for a target, in game units (20 = 1 m)."));
+                Add(109, (int)Flight.PlayerTurret.AutoRangeUnits, 1000, 1000000, T("mbStatNoteRange", "How far an automatic turret looks for targets (20 = 1 m)."));
             }
             if (item.categoryId == 19)
             {
-                Add(100, 0, 0, 1, T("mbStatNoteBeam", "A mining beam: it cuts a locked asteroid in free flight while fire is held, no mining game."), true);
+                Add(100, 0, 0, 1, T("mbStatNoteBeam", "A mining beam: cuts a locked asteroid while fire is held, no mining game."), true);
                 Add(101, (int)Flight.Mining.BeamDefaultRangeUnits, 1000, 200000);
                 Add(102, (int)Flight.MiningGame.LayerMs, 500, 60000);
                 Add(103, 228, 0, 300, T("mbStatNoteBeamLook", "The beam laser item whose beam it draws."));
@@ -267,12 +278,12 @@ namespace GoF2Remake.UI
             if (item.categoryId == 13)
             {
                 Add(Flight.CombatRadar.TractorTargetsAttr, 1, 1, Flight.CombatRadar.MaxTractorTargets,
-                    T("mbStatNoteTractorTargets", "2 or more: it pulls that many containers at once by itself, within its range, without the salvage lock (the scanner stays free)."));
+                    T("mbStatNoteTractorTargets", "2 or more: pulls that many containers at once by itself, without the lock."));
                 Add(Flight.CombatRadar.TractorRangeAttr, (int)Flight.CombatRadar.DefaultTractorRangeUnits, 1000, 200000,
-                    T("mbStatNoteTractorRange", "How far the extra beams reach for containers, in game units (20 = 1 m)."));
+                    T("mbStatNoteTractorRange", "How far the extra beams reach for containers (20 = 1 m)."));
             }
             if (item.categoryId == 21)
-                Add(104, 0, 0, 1, T("mbStatNotePhase", "While cloaked the ship also passes through stations, asteroids and other ships, and nothing hits it."), true);
+                Add(104, 0, 0, 1, T("mbStatNotePhase", "While cloaked the ship passes through everything and nothing hits it."), true);
             return list;
         }
 
@@ -329,9 +340,7 @@ namespace GoF2Remake.UI
                     TurretEdited();
                 }, index => Database.Shared.Item(index) is ItemData d && d.categoryId != 8 && d.categoryId != 35)));
             if (ModImport.Available)
-                Act(row, T("mbOwnGlb", "Your .glb…"), () => PickFile(T("mbPickTurret", "Choose a turret model"), "glTF binary model", "glb",
-                    new byte[] { (byte)'g', (byte)'l', (byte)'T', (byte)'F' },
-                    T("mbNotGlb", "That isn't a .glb model (glTF binary). In Blender: File > Export > glTF 2.0, format glTF Binary."), path =>
+                Act(row, T("mbOwnGlb", "Your .glb…"), () => PickGlb(T("mbPickTurret", "Choose a turret model"), path =>
                     {
                         string old = it.TurretModel;
                         it.TurretModel = Project.AddFile(path, "models", (it.IsOverride ? "item_" + it.OverrideIndex : it.LocalId) + "_turret", ".glb");
@@ -340,7 +349,7 @@ namespace GoF2Remake.UI
                         Status(T("mbLoadingModel", "Loading the model…"), false);
                     }));
             if (model != null || fromItem != null)
-                Act(row, "✕", () =>
+                Act(row, "×", () =>
                 {
                     it.TurretModel = null;
                     it.TurretItem = null;
@@ -358,7 +367,7 @@ namespace GoF2Remake.UI
             Int(xyz, "X", off.x, -100000, 100000, v => { var o = it.TurretOffset; o.x = v; it.TurretOffset = o; TurretEdited(); });
             Int(xyz, "Y", off.y, -100000, 100000, v => { var o = it.TurretOffset; o.y = v; it.TurretOffset = o; TurretEdited(); });
             Int(xyz, "Z", off.z, -100000, 100000, v => { var o = it.TurretOffset; o.z = v; it.TurretOffset = o; TurretEdited(); });
-            Note(itemPage, T("mbTurretOffsetNote", "Moves the model off its mount: game units (20 = 1 m), X toward the pilot's left, Y along the turret's up, Z forward."));
+            Note(itemPage, T("mbTurretOffsetNote", "Moves the model off its mount: X left, Y up, Z forward (20 = 1 m)."));
             if (model != null && !GameModels.Is(model))
             {
                 Int(itemPage, T("mbTurretMuzzle", "Muzzle flash, along the barrel"), Mathf.RoundToInt(it.TurretMuzzle ?? 200f), 0, 100000, v =>
@@ -372,8 +381,8 @@ namespace GoF2Remake.UI
                     TurretEdited();
                 });
             }
-            Note(itemPage, T("mbTurretGameNote", "Game turret: any of the game's turrets' models, with its own muzzle and shot start, no file needed."));
-            Note(itemPage, T("mbTurretNote", "Your .glb: 1 unit = 1 m, its origin on the mount, the barrel along +Z. A node named \"pivot\" holding the base turns it left and right and a node named *_gun under it (the barrel) tilts up and down; without them the whole model turns. The distances are game units (20 = 1 m) on the model as made. Fit it to the test ship to see it on the turntable."));
+            Note(itemPage, T("mbTurretGameNote", "Any of the game's turret models, with its own muzzle; no file needed."));
+            Note(itemPage, T("mbTurretNote", "Your .glb: 1 unit = 1 m, origin on the mount, barrel along +Z. A \"pivot\" node turns it, a *_gun node under it tilts."));
         }
 
         static readonly string[] PartLabels = { "Projectile", "Muzzle flash", "Impact" };
@@ -403,7 +412,7 @@ namespace GoF2Remake.UI
                     it.SetFxPartItem(part, index);
                     LookEdited();
                 })));
-                if (from != null) Act(row, "✕", () => { it.SetFxPartItem(part, null); LookEdited(); }, "mbv-step");
+                if (from != null) Act(row, "×", () => { it.SetFxPartItem(part, null); LookEdited(); }, "mbv-step");
                 Int(itemPage, string.Format(T("mbPartSize", "{0} size (%)"), label), Mathf.RoundToInt((it.FxPartScale(part) ?? 1f) * 100f), 1, 10000, v =>
                 {
                     it.SetFxPartScale(part, v / 100f);
@@ -426,9 +435,9 @@ namespace GoF2Remake.UI
                     it.SetSoundItem(k, index);
                     LookEdited();
                 })));
-                if (from != null) Act(row, "✕", () => { it.SetSoundItem(k, null); LookEdited(); }, "mbv-step");
+                if (from != null) Act(row, "×", () => { it.SetSoundItem(k, null); LookEdited(); }, "mbv-step");
             }
-            Note(itemPage, T("mbLookNote", "Borrow any game weapon's projectile, muzzle flash, impact or sounds: no files needed. What the weapon does stays its base item's. Fit it and press Test fly to see it."));
+            Note(itemPage, T("mbLookNote", "Borrow any game weapon's projectile, muzzle flash, impact or sounds; no files needed."));
         }
 
         void LookEdited(bool rebuild = true)

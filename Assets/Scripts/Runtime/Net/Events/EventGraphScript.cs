@@ -29,7 +29,10 @@ namespace GoF2Remake.Events
     public enum EventGameValue { Enemies, Ships, Players, InSpace, Docked, Dead, Time, TopPoints, MissionStation, Campaign, Credits, Rank, Station, System, Ship, Kills }
     /// <summary>The Start node's kind: an event (/event; a bar mission when it has a Mission title, as before), a bar
     /// mission, or a quest (single player, like the story: starts by itself, lasts across saves).</summary>
-    public enum EventKind { Event, BarMission, Quest }
+    public enum EventKind { Event, BarMission, StoryMission }
+    /// <summary>A bar mission's Who can take it: one squad at a time in the whole universe, one per station (other stations'
+    /// bars still offer it), or any number of squads (several at one station too).</summary>
+    public enum EventMissionTakers { OneInUniverse, OnePerStation, Anyone }
     public enum EventMathOp { Add, Subtract, Multiply, Divide, Modulo, Min, Max }
     public enum EventCompareOp { Equal, NotEqual, Less, LessOrEqual, Greater, GreaterOrEqual }
     public enum EventLogicOp { And, Or }
@@ -187,7 +190,7 @@ namespace GoF2Remake.Events
                 string missionTitle = Clean(start, Get(start, "MissionTitle", false));
                 var kind = (EventKind)(int.TryParse(Get(start, "Kind", false), out int kindValue) ? kindValue : 0);   // graphs from before the option: an event
                 if (kind == EventKind.BarMission && missionTitle.Length == 0) Error(start, "A bar mission needs its Mission title (what the visitor offers).");
-                if (kind == EventKind.Quest)
+                if (kind == EventKind.StoryMission)
                 {
                     // A quest (EventRunner: "mission kind quest"): its title in the Missions window, when it starts.
                     if (missionTitle.Length > 0) Raw("mission title " + missionTitle);
@@ -213,6 +216,11 @@ namespace GoF2Remake.Events
                     if (!start.values.ContainsKey("MinPlayers")) min = 1;
                     if (!start.values.ContainsKey("MaxPlayers")) max = Math.Max(min, 4);
                     Raw($"mission players {min} {max}");
+                    if (start.values.ContainsKey("MissionChance"))
+                        Raw("mission chance " + Math.Max(0, Math.Min(100, (int)Math.Round(Num(start, "MissionChance")))));
+                    var takers = (EventMissionTakers)(int.TryParse(Get(start, "MissionTakers", false), out int takersValue) ? takersValue : 0);
+                    if (takers == EventMissionTakers.OnePerStation) Raw("mission takers station");
+                    else if (takers == EventMissionTakers.Anyone) Raw("mission takers any");
                     string stations = Clean(start, Get(start, "MissionStations", false));
                     if (stations.Length > 0)
                     {
@@ -221,10 +229,10 @@ namespace GoF2Remake.Events
                     }
                     Raw("");
                 }
-                if (kind != EventKind.Quest && missionTitle.Length == 0
+                if (kind != EventKind.StoryMission && missionTitle.Length == 0
                     && graph.nodes.Any(n => n.kind == "EventCheckpointNode" || n.kind == "EventSetObjectiveNode" || n.kind == "EventQuestOrbitNode"))
-                    Warning(start, "Checkpoints, objectives and quest orbits only matter in quests and bar missions (the Start node's Kind).");
-                if (missionTitle.Length == 0 && kind != EventKind.Quest && graph.nodes.Any(n => n.kind == "EventMissionCompleteNode" || n.kind == "EventMissionFailedNode"))
+                    Warning(start, "Checkpoints, objectives and mission orbits only matter in story and bar missions (the Start node's Kind).");
+                if (missionTitle.Length == 0 && kind != EventKind.StoryMission && graph.nodes.Any(n => n.kind == "EventMissionCompleteNode" || n.kind == "EventMissionFailedNode"))
                     Warning(start, "Mission Complete / Failed without a Mission title: the event isn't offered in the bars (in an /event they end it for everyone).");
                 int declared = 0;
                 foreach (var v in graph.variables)
@@ -464,14 +472,14 @@ namespace GoF2Remake.Events
                     case "EventQuestOrbitNode":
                     {
                         string station = inputs.TryGetValue((n.id, "Orbit"), out var orbit) && orbit.node.kind == "EventGetOrbitNode" ? Orbit(orbit.node) : "";
-                        if (station.Length == 0) Error(n, "Wire a Get Orbit into Orbit: the quest's orbit.");
+                        if (station.Length == 0) Error(n, "Wire a Get Orbit into Orbit: the mission's orbit.");
                         Line("questorbit " + station + (Bool(n, "On") ? "" : " off"));
                         break;
                     }
                     case "EventStartQuestNode":
                     {
                         string name = Text(n, "Quest");
-                        if (name.Length == 0 || name.Contains(" ")) Error(n, "Start Quest needs a quest's name (one word, the graph's file name).");
+                        if (name.Length == 0 || name.Contains(" ")) Error(n, "Start Mission needs a story mission's name (one word, the graph's file name).");
                         Line("startquest " + name);
                         break;
                     }
@@ -617,8 +625,12 @@ namespace GoF2Remake.Events
                         Line(Join("letterbox", Text(n, "Players"), Bool(n, "On") ? "on" : "off"));
                         break;
                     case "EventPlaySoundNode":
-                        Line(Join("sound", Text(n, "Players"), ((EventSound)Int(n, "Sound")).ToString().ToLowerInvariant()));
+                    {
+                        // A mod's sound by name (ModSounds) instead of the game's list.
+                        string modSound = Clean(n, Get(n, "ModSound", false));
+                        Line(Join("sound", Text(n, "Players"), modSound.Length > 0 ? modSound : ((EventSound)Int(n, "Sound")).ToString().ToLowerInvariant()));
                         break;
+                    }
                     case "EventPlayMusicNode":
                     {
                         // A mod's track by name (ModMusic) instead of the game's list.
@@ -665,6 +677,21 @@ namespace GoF2Remake.Events
                     }
                     case "EventClearWaypointNode":
                         Line(Join("waypoint", Text(n, "Players"), "off"));
+                        break;
+                    case "EventOpenWormholeNode":
+                    {
+                        string station = inputs.TryGetValue((n.id, "Orbit"), out var orbit) && orbit.node.kind == "EventGetOrbitNode" ? Orbit(orbit.node) : "";
+                        string to = inputs.TryGetValue((n.id, "Destination"), out var dest) && dest.node.kind == "EventGetOrbitNode" ? Orbit(dest.node) : "";
+                        string at = Text(n, "At");
+                        if (station.Length == 0) Error(n, "Wire a Get Orbit into Orbit: where the wormhole opens.");
+                        if (to.Length == 0) Error(n, "Wire a Get Orbit into Destination: where flying in takes them.");
+                        if (at.Trim().Length > 0 && at.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length != 3) Error(n, "At: game coordinates \"x y z\" (or empty).");
+                        string seconds = IsWired(n, "Seconds") || Num(n, "Seconds") > 0 ? "for " + Arg(n, "Seconds") : "";
+                        Line(Join("wormhole", Text(n, "Players"), station, at, "to", to, seconds));
+                        break;
+                    }
+                    case "EventCloseWormholeNode":
+                        Line(Join("wormhole", Text(n, "Players"), "close"));
                         break;
                     case "EventSystemNode":
                     {

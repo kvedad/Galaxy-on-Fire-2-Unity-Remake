@@ -20,9 +20,11 @@ namespace GoF2Remake.Tests
     [Unity.Scripting.LifecycleManagement.NoAutoStaticsCleanup]
     public class OptionsCatalogTests : SandboxTest
     {
-        /// <summary>Rows that aren't a Settings value: the game's difficulty (Session), the Debug tools (Cheats), the tilt
-        /// steering choice (calibrates the device when turned on), buttons.</summary>
-        static readonly HashSet<string> NotSettings = new HashSet<string> { "difficulty", "debugTools", "steering" };
+        /// <summary>Rows that aren't a Settings value, or that "Default settings" deliberately keeps: the game's difficulty
+        /// (Session), the Debug tools (Cheats), the tilt steering choice (calibrates the device when turned on), buttons,
+        /// and the text language (Settings.ResetToDefaults keeps it: a Defaults button should not put a player back into a
+        /// language they can't read).</summary>
+        static readonly HashSet<string> NotSettings = new HashSet<string> { "difficulty", "debugTools", "steering", "language" };
 
         DataUiTestKit.PrefsSnapshot prefs;
         DataUiTestKit.TextLanguage english;
@@ -142,6 +144,7 @@ namespace GoF2Remake.Tests
                         break;
                     default:
                         int n = o.choices().Length;
+                        if (o.id == "graphicsPreset") n = Settings.PresetCustom;   // Custom only reads back, it sets nothing
                         for (int i = 0; i < n; i++)
                         {
                             o.setIndex(i);
@@ -153,7 +156,7 @@ namespace GoF2Remake.Tests
         }
 
         static IEnumerable<OptionPage> SettingsPages() =>
-            new[] { OptionPage.Sound, OptionPage.Graphics, OptionPage.Controls, OptionPage.Gameplay, OptionPage.Language };
+            new[] { OptionPage.Sound, OptionPage.Graphics, OptionPage.Controls, OptionPage.Gameplay, OptionPage.Accessibility, OptionPage.Language };
 
         [TestCaseSource(nameof(SettingsPages))]
         public void DefaultSettingsForATabResetsEveryOptionOnIt(OptionPage page)
@@ -243,13 +246,22 @@ namespace GoF2Remake.Tests
             Assert.AreEqual(Localization.Get(34), Label("music"), "Music 34");
             Assert.AreEqual(Localization.Get(35), Label("sfx"), "FX 35");
             Assert.AreEqual(Localization.Get(36), Label("voice"), "Voice 36");
-            Assert.AreEqual(Localization.Get(504), Label("quality"), "Quality 504");
             Assert.AreEqual(Localization.Get(503), Label("brightness"), "Brightness 503");
             Assert.AreEqual(Localization.Get(499), Label("sensitivity"), "Sensitivity 499");
-            CollectionAssert.AreEqual(new[] { Localization.Get(507), Localization.Get(508), Localization.Get(509) },
-                all.First(o => o.id == "quality").choices(), "Low / Medium / High 507-509");
+            CollectionAssert.AreEqual(new[] { Localization.Get(507), Localization.Get(508), Localization.Get(509), "Ultra" },
+                all.First(o => o.id == "detailDistance").choices(), "Low / Medium / High 507-509, then Ultra");
+            Assert.IsFalse(all.Any(o => o.id == "quality"), "the original's Quality is split into its parts");
             CollectionAssert.AreEqual(new[] { Localization.Get(513), Localization.Get(514), Localization.Get(515) },
                 all.First(o => o.id == "brightness").choices(), "Dark / Medium / Bright 513-515");
+        }
+
+        [Test]
+        public void OnlyTheVolumesHaveASpeaker()
+        {
+            // OptionDef.volume, not the page: a row built by hand (the photo panel) leaves the page at Sound, its default.
+            var volumes = OptionsCatalog.All().Where(o => o.volume).Select(o => o.id).OrderBy(x => x).ToList();
+            CollectionAssert.AreEqual(new[] { "master", "music", "sfx", "voice" }, volumes);
+            Assert.IsFalse(new OptionDef { kind = OptionKind.Slider }.volume, "a slider built by hand has none");
         }
 
         [Test]
@@ -263,6 +275,87 @@ namespace GoF2Remake.Tests
             Assert.AreEqual("Key bindings", OptionsCatalog.PageTitle(OptionPage.Bindings));
             Assert.AreEqual("Only Sound", OptionsCatalog.ResetTabLabel(OptionPage.Sound));
             Assert.AreEqual("Language", Localization.Get(0));
+        }
+
+        [Test]
+        public void TheGraphicsPresetsSetTheirOptionsAndAChangeShowsCustom()
+        {
+            Settings.ResetToDefaults();
+            Assert.AreEqual(Settings.PresetHigh, OptionsCatalog.CurrentPreset(), "a fresh desktop install shows High (its defaults)");
+            Settings.ApplyPreset(Settings.PresetLow);
+            Assert.AreEqual(Settings.PresetLow, OptionsCatalog.CurrentPreset());
+            Assert.IsFalse(Settings.FireSmoke, "the original's Quality Low: smoke off");
+            Assert.IsFalse(Settings.Fog, "and fog off");
+            Assert.AreEqual(0, Settings.DetailDistance);
+            Assert.AreEqual(Settings.BloomOff, Settings.BloomStyle);
+            Assert.AreEqual(Settings.HangarShadowsOff, Settings.HangarShadows);
+            Assert.IsFalse(Settings.NpcPlayerEngines);
+            Assert.AreEqual(0.67f, Settings.RenderScale, 1e-4f);
+            Assert.AreEqual(1, Settings.TextureQuality, "half-size textures");
+            Settings.ApplyPreset(Settings.PresetMedium);
+            Assert.AreEqual(Settings.PresetMedium, OptionsCatalog.CurrentPreset());
+            Settings.LensFlare = false;
+            Assert.AreEqual(Settings.PresetCustom, OptionsCatalog.CurrentPreset(), "one option changed: Custom");
+            Settings.ApplyPreset(Settings.PresetCustom);
+            Assert.IsFalse(Settings.LensFlare, "picking Custom changes nothing");
+            Settings.ApplyPreset(Settings.PresetHigh);
+            Assert.AreEqual(Settings.PresetHigh, OptionsCatalog.CurrentPreset());
+            Assert.IsTrue(Settings.FireSmoke && Settings.Fog);
+            Assert.AreEqual(2, Settings.DetailDistance);
+            Settings.ApplyPreset(Settings.PresetUltra);
+            Assert.AreEqual(Settings.PresetUltra, OptionsCatalog.CurrentPreset());
+            Assert.AreEqual(1.5f, Settings.RenderScale, 1e-4f);
+            Assert.AreEqual(8, Settings.Msaa);
+            Assert.AreEqual(Settings.HangarShadowsAll, Settings.HangarShadows);
+            Assert.IsTrue(Settings.HangarDepthOfField);
+            Assert.IsFalse(Settings.Lods, "every model at full detail");
+            Assert.AreEqual(3, Settings.DetailDistance);
+            Assert.AreEqual(3, Settings.TextureFiltering, "16x");
+            Assert.AreEqual(0, Settings.TextureQuality);
+        }
+
+        [Test]
+        public void ThePresetRowOffersUltraBeforeCustom()
+        {
+            var row = OptionsCatalog.All().First(o => o.id == "graphicsPreset");
+            var choices = row.choices();
+            Assert.AreEqual("Ultra", choices[Settings.PresetUltra]);
+            Assert.AreEqual(Settings.PresetCustom, choices.Length - 1, "Custom last");
+        }
+
+        [Test]
+        public void AnOldQualitySettingCarriesOverIntoItsParts()
+        {
+            Settings.ResetToDefaults();
+            UnityEngine.PlayerPrefs.SetFloat("gof2.quality", 1f);
+            DataUiTestKit.ClearSettingsCache();
+            Assert.IsFalse(Settings.FireSmoke, "Medium: smoke off");
+            Assert.IsFalse(Settings.Fog, "fog off");
+            Assert.AreEqual(1, Settings.DetailDistance, "detail Medium");
+            Settings.Fog = true;
+            Assert.IsTrue(Settings.Fog, "the new option wins once set");
+            Settings.ResetToDefaults();
+            Assert.IsTrue(Settings.FireSmoke && Settings.Fog, "Default settings clears the old one too");
+            Assert.AreEqual(2, Settings.DetailDistance);
+        }
+
+        [Test]
+        public void AndroidStartsOnTheLowPresetAt60FpsWithOriginalCollision()
+        {
+            try
+            {
+                Settings.ResetToDefaults();
+                Settings.OverrideAndroidDefaults(true);
+                Assert.AreEqual(Settings.PresetLow, OptionsCatalog.CurrentPreset(), "every preset option at Low");
+                Assert.AreEqual(FrameRate.Fps60, Settings.FrameRate);
+                Assert.IsFalse(Settings.NpcPlayerEngines, "the other ships' engines the original's");
+                Assert.AreEqual(SessionRules.CollisionOriginal, Settings.ShipCollision, "no hull meshes on phones");
+                Settings.OverrideAndroidDefaults(false);
+                Assert.AreEqual(SessionRules.CollisionMixed, Settings.ShipCollision);
+                Assert.AreEqual(FrameRate.VSync, Settings.FrameRate, "elsewhere V-Sync");
+                Assert.IsTrue(Settings.NpcPlayerEngines);
+            }
+            finally { Settings.OverrideAndroidDefaults(null); }
         }
     }
 }

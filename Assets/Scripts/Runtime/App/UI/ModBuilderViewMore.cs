@@ -43,7 +43,6 @@ namespace GoF2Remake.UI
             // Default Economy: the prices when the player picked the PC / Mac economy (the rest stays the item's).
             var de = it.Get("defaultEconomy") as JObject;
             int dMin = JInt(de?["minPrice"]) ?? 0, dMax = JInt(de?["maxPrice"]) ?? 0;
-            var row = Row(itemPage, "mbv-xyz");
             void SetDe(string k, int v)
             {
                 var o = it.Get("defaultEconomy") as JObject ?? new JObject();
@@ -51,8 +50,8 @@ namespace GoF2Remake.UI
                 it.Set("defaultEconomy", o.HasValues ? o : null);
                 ItemEdited();
             }
-            Int(row, T("mbDefaultMin", "Default Economy: lowest"), dMin, 0, 999999999, v => SetDe("minPrice", v));
-            Int(row, T("mbDefaultMax", "highest (0 = as above)"), dMax, 0, 999999999, v => SetDe("maxPrice", v));
+            Int(itemPage, T("mbDefaultMin", "Default Economy: lowest"), dMin, 0, 999999999, v => SetDe("minPrice", v));
+            Int(itemPage, T("mbDefaultMaxPrice", "Default Economy: highest (0 = as the lowest)"), dMax, 0, 999999999, v => SetDe("maxPrice", v));
 
             // Raw attributes: the original game's attribute numbers ({ "9": 14 }).
             Heading(itemPage, T("mbAttributes", "Attributes by number"));
@@ -61,9 +60,9 @@ namespace GoF2Remake.UI
                 foreach (var p in attrs.Properties().ToList())
                 {
                     string key = p.Name;
-                    var arow = Row(itemPage, "mbv-xyz");
+                    var arow = Row(itemPage);
                     Int(arow, string.Format(T("mbAttrN", "Attribute {0}"), key), JInt(p.Value) ?? 0, int.MinValue / 2, int.MaxValue / 2, v => { ((JObject)it.Get("attributes"))[key] = v; ItemEdited(); });
-                    Act(arow, "✕", () => { var o = (JObject)it.Get("attributes"); o.Remove(key); it.Set("attributes", o.HasValues ? o : null); ItemEdited(); BuildItemPage(); }, "mbv-step");
+                    Act(arow, "×", () => { var o = (JObject)it.Get("attributes"); o.Remove(key); it.Set("attributes", o.HasValues ? o : null); ItemEdited(); BuildItemPage(); }, "mbv-step");
                 }
             Act(itemPage, T("mbAddAttribute", "+ Attribute"), () => AskText(T("mbAddAttribute", "+ Attribute"), T("mbAttrNumber", "The attribute's number (reference.md lists them)"), "", text =>
             {
@@ -74,7 +73,7 @@ namespace GoF2Remake.UI
                 ItemEdited();
                 BuildItemPage();
             }, 6), "mbv-add");
-            Note(itemPage, T("mbAttributesNote", "For the numbers the stats above have no name for (Modding/ai/gof2-modding/reference.md lists every attribute)."));
+            Note(itemPage, T("mbAttributesNote", "For numbers the stats above don't name (reference.md lists every attribute)."));
         }
 
         /// <summary>A ship's selling and NPC fields.</summary>
@@ -126,7 +125,7 @@ namespace GoF2Remake.UI
                 int n = i;
                 var trow = Row(ship);
                 Add(trow, new Label($"{n + 1}. {RefLabel(RefKind.Item, turrets[n], turrets[n])}"), "mbv-inline-label");
-                Act(trow, "✕", () => { turrets.RemoveAt(n); s.Set("npcTurrets", turrets.Count > 0 ? new JArray(turrets.Select(ProjectEntry.RefToken)) : null); MarkDirty(); BuildShipPage(); }, "mbv-step");
+                Act(trow, "×", () => { turrets.RemoveAt(n); s.Set("npcTurrets", turrets.Count > 0 ? new JArray(turrets.Select(ProjectEntry.RefToken)) : null); MarkDirty(); BuildShipPage(); }, "mbv-step");
             }
             Act(ship, T("mbAddNpcTurret", "+ Turret for NPC ships"), () => PickRef(RefKind.Item, T("mbNpcTurrets", "NPC turrets"), e =>
             {
@@ -136,7 +135,7 @@ namespace GoF2Remake.UI
                 MarkDirty();
                 BuildShipPage();
             }, e => int.TryParse(e.value, out int idx) ? Database.Shared.Item(idx)?.categoryId == 8 : true), "mbv-add");
-            Note(ship, T("mbNpcTurretsNote", "The n-th turret item goes on the n-th turret mount of the NPC ships of this type: they aim and fire by themselves, and show parked in hangars."));
+            Note(ship, T("mbNpcTurretsNote", "The n-th turret item goes on NPC ships' n-th turret mount."));
 
             // The engine flame.
             Heading(ship, T("mbEngineFlame", "Engine flame"));
@@ -158,7 +157,7 @@ namespace GoF2Remake.UI
                     Float(crow, "RGB".Substring(c, 1), (float)colour[c], 0f, 1f, v => { colour[c] = Math.Round(v, 3); MarkDirty(); RequestReload(true); });
                 }
             }
-            Note(ship, T("mbMoreJsonNote", "Per-mesh materials, throttle glows and extra glows: Edit as JSON (at the top)."));
+            Note(ship, T("mbMoreJsonNote", "Per-mesh materials and glows: Edit as JSON (top)."));
         }
     }
 }
